@@ -3,9 +3,10 @@ js/tests/*
 **/.DS_Store
 
 
+**/.env*
 **/*.env*
-**/*.tgz*
-
+**/*.*tgz
+**/values.yaml
 .gitignore
 *.log
 .DS_Store

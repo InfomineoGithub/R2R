@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: r2r-dashboard
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: r2r-dashboard
+  
+  type: {{ .Values.services.knowledgeBaseServiceR2RDashboard.type }}
+  ports:
+    - port: {{ .Values.knowledgeBaseServiceR2RDashboard.service.port }}
+      targetPort: {{ .Values.knowledgeBaseServiceR2RDashboard.service.targetPort }}
+      protocol: TCP

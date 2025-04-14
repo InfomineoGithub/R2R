@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: r2r-dashboard
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: r2r-dashboard
+  template:
+    metadata:
+      labels:
+        app: r2r-dashboard
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: knowledge-base-graph-cluster-service-sa
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: r2r-dashboard
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.knowledgeBaseServiceR2RDashboard.image.repository }}:{{ .Values.knowledgeBaseServiceR2RDashboard.image.tag | default .Chart.AppVersion }}"
+        ports:
+          - name: http
+            containerPort: {{ .Values.knowledgeBaseServiceR2RDashboard.containerPort }}
+            protocol: TCP
+        envFrom:
+        - secretRef:
+            name: r2r-dashboard-env-secrets
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.failureThreshold }}              
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.failureThreshold }}
+          successThreshold: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.successThreshold }}              
+        resources:
+          {{- toYaml .Values.knowledgeBaseServiceR2RDashboard.resources | nindent 12 }}

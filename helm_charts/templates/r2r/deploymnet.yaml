@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: r2r
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: r2r
+  template:
+    metadata:
+      labels:
+        app: r2r
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: knowledge-base-r2r-service-sa
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: r2r
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.knowledgeBaseServiceR2R.image.repository }}:{{ .Values.knowledgeBaseServiceR2R.image.tag | default .Chart.AppVersion }}"
+        ports:
+          - name: http
+            containerPort: {{ .Values.knowledgeBaseServiceR2R.containerPort }}
+            protocol: TCP
+        envFrom:
+        - secretRef:
+            name: r2r-env-secrets
+        volumeMounts:
+        - name: user-configs
+          mountPath: {{ .Values.knowledgeBaseServiceR2R.userConfigs.mountPath }}
+          subPath: my_custom_config.toml
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.failureThreshold }}              
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.failureThreshold }}
+          successThreshold: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.successThreshold }}              
+        resources:
+          {{- toYaml .Values.knowledgeBaseServiceR2R.resources | nindent 12 }}
+      volumes:
+        - name: user-configs
+          secret:
+            secretName: {{ .Values.knowledgeBaseServiceR2R.userConfigs.secretName }}
+            # items lets you pick only the key you want
+            items:
+              - key: my_custom_config.toml
+                path: my_custom_config.toml
