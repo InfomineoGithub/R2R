@@ -3,7 +3,8 @@ js/tests/*
 **/.DS_Store
 
 
-**/.env*
+**/*.env*
+**/*.tgz*
 
 .gitignore
 *.log
