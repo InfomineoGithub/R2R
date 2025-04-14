@@ -1,0 +1,12 @@
+apiVersion: v2
+name: infomineo-knowledge-base
+version: 1.0.0
+description: simple knowledge base chart for R2R
+type: application
+keywords:
+  - r2r
+  - llm
+  - observability
+  - knowledge-base
+
+appVersion: "1.0.0"

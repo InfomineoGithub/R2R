@@ -4,7 +4,9 @@ js/tests/*
 
 
 **/.env*
-
+**/*.env*
+**/*.*tgz
+**/values.yaml
 .gitignore
 *.log
 .DS_Store

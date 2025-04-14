@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-clustering
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: graph-clustering
+  template:
+    metadata:
+      labels:
+        app: graph-clustering
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: knowledge-base-graph-cluster-service-sa
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: graph-clustering
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 12 }}
+        image: "{{ .Values.knowledgeBaseServiceR2RGraphClustering.image.repository }}"
+        ports:
+          - name: http
+            containerPort: {{ .Values.knowledgeBaseServiceR2RGraphClustering.containerPort }}
+            protocol: TCP
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.port }}
+          initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.failureThreshold }}              
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.port }}
+          initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.failureThreshold }}
+          successThreshold: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.successThreshold }}              
+        resources:
+          {{- toYaml .Values.knowledgeBaseServiceR2RGraphClustering.resources | nindent 12 }}

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hatchet-dashboard
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: hatchet-dashboard
+  ports:
+    - port: 80
+      targetPort: 7274
