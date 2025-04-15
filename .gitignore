@@ -11,13 +11,17 @@ js/tests/*
 !docker/env/r2r-full.env
 !docker/env/r2r-dashboard.env
 
+**/*.env*
+**/*.tgz*
+
+.gitignore
+*.log
 .DS_Store
 *.gguf
 logs/
 workspace/
 py/workspace/
 uploads/
-env/
 **/__pycache__
 **/.mypy_cache
 **/.pytest_cache
