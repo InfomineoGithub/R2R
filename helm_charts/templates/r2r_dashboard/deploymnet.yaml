@@ -40,14 +40,14 @@ spec:
             name: r2r-dashboard-env-secrets
         livenessProbe:
           tcpSocket:
-            port: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.port }}
+            port: http
           initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.initialDelaySeconds }}
           periodSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.timeoutSeconds }}
           failureThreshold: {{ .Values.knowledgeBaseServiceR2RDashboard.livenessProbe.failureThreshold }}              
         readinessProbe:
           tcpSocket:
-            port: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.port }}
+            port: http
           initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.initialDelaySeconds }}
           periodSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RDashboard.readinessProbe.timeoutSeconds }}

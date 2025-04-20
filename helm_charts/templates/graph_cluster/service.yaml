@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+  
 spec:
   selector:
     app: graph-clustering

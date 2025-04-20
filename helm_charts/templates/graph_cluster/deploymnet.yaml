@@ -36,15 +36,17 @@ spec:
             containerPort: {{ .Values.knowledgeBaseServiceR2RGraphClustering.containerPort }}
             protocol: TCP
         livenessProbe:
-          tcpSocket:
-            port: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.port }}
+          httpGet:
+            path: /health
+            port: http
           initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.initialDelaySeconds }}
           periodSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.timeoutSeconds }}
           failureThreshold: {{ .Values.knowledgeBaseServiceR2RGraphClustering.livenessProbe.failureThreshold }}              
         readinessProbe:
-          tcpSocket:
-            port: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.port }}
+          httpGet:
+            path: /health
+            port: http
           initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.initialDelaySeconds }}
           periodSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.knowledgeBaseServiceR2RGraphClustering.readinessProbe.timeoutSeconds }}

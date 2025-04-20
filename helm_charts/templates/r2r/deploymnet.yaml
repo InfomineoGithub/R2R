@@ -5,6 +5,7 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+    
 spec:
   replicas: 1
   selector:
@@ -43,15 +44,17 @@ spec:
           mountPath: {{ .Values.knowledgeBaseServiceR2R.userConfigs.mountPath }}
           subPath: my_custom_config.toml
         livenessProbe:
-          tcpSocket:
-            port: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.port }}
+          httpGet:
+            path: /v3/health
+            port: http
           initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.initialDelaySeconds }}
           periodSeconds: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.timeoutSeconds }}
           failureThreshold: {{ .Values.knowledgeBaseServiceR2R.livenessProbe.failureThreshold }}              
         readinessProbe:
-          tcpSocket:
-            port: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.port }}
+          httpGet:
+            path: /v3/health
+            port: http
           initialDelaySeconds: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.initialDelaySeconds }}
           periodSeconds: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.periodSeconds }}
           timeoutSeconds: {{ .Values.knowledgeBaseServiceR2R.readinessProbe.timeoutSeconds }}

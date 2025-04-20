@@ -5,12 +5,25 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
 spec:
   selector:
     app: r2r-dashboard
   
   type: {{ .Values.services.knowledgeBaseServiceR2RDashboard.type }}
   ports:
-    - port: {{ .Values.knowledgeBaseServiceR2RDashboard.service.port }}
-      targetPort: {{ .Values.knowledgeBaseServiceR2RDashboard.service.targetPort }}
+    - name: http
       protocol: TCP
+      port: {{ .Values.services.knowledgeBaseServiceR2RDashboard.port }}
+      {{- if (eq .Values.services.knowledgeBaseServiceR2RDashboard.type "ClusterIP") }}
+      nodePort: null
+      {{- end }}
+      targetPort: {{ .Values.services.knowledgeBaseServiceR2RDashboard.targetPort }}
+    - name: https
+      protocol: TCP
+      port: 443
+      {{- if (eq .Values.services.knowledgeBaseServiceR2RDashboard.type "ClusterIP") }}
+      nodePort: null
+      {{- end }}
+      targetPort: {{ .Values.services.knowledgeBaseServiceR2RDashboard.targetPort }}      

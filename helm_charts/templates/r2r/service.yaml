@@ -3,14 +3,17 @@ kind: Service
 metadata:
   name: r2r
   namespace: {{ .Values.namespace }}
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
   labels:
     {{- include "infomineo-chatbot.labels" . | nindent 4 }}
 spec:
   selector:
     app: r2r
   
-  type: {{ .Values.services.knowledgeBaseServiceR2R.type }}
   ports:
-    - port: {{ .Values.knowledgeBaseServiceR2R.service.port }}
-      targetPort: {{ .Values.knowledgeBaseServiceR2R.service.targetPort }}
-      protocol: TCP
+    - protocol: TCP
+      port: {{ .Values.services.knowledgeBaseServiceR2R.port }}
+      targetPort: {{ .Values.services.knowledgeBaseServiceR2R.targetPort }}
+  type: {{ .Values.services.knowledgeBaseServiceR2R.type }}
+   
