@@ -126,12 +126,3 @@ provider = "console_mock" # `smtp` | `sendgrid` supported
 
 [scheduler]
 provider = "apscheduler"
-
-[database]
-provider = "postgres"
-user = "postgres"
-password = "postgres"
-host = "postgres"
-port = 5433
-db_name = "postgres"
-project_name = "brain_r2r"
