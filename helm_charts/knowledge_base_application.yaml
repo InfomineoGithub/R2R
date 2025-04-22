@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: knowledge-base
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:InfomineoGithub/R2R.git
+    targetRevision: dev
+    path: helm_charts
+    helm:
+      valueFiles:
+        - >-
+          secrets+gpg-import:///helm-secrets-private-keys/key.asc?values.enc.yaml
+      fileParameters:
+        - name: config
+          path: secrets://values.enc.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chatbot
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
