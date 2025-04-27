@@ -1,0 +1,33 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: r2r-knowledge-base
+  namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: |
+      europe-west1-docker.pkg.dev/brain-prod-450115/brain-r2r/r2r
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/git-branch: main
+    argocd-image-updater.argoproj.io/image-update-strategy: latest
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:InfomineoGithub/R2R.git
+    targetRevision: main
+    path: helm_charts
+    helm:
+      valueFiles:
+        - >-
+          secrets+gpg-import:///helm-secrets-private-keys/key.asc?values.enc.yaml
+      fileParameters:
+        - name: config
+          path: secrets://values.enc.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chatbot
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      
