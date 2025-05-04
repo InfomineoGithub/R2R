@@ -4,6 +4,11 @@ on:
   push:
     branches: [ 'main' ]
 
+    paths:
+      - 'js/**'
+      - 'py/**'
+      - 'services/**'
+
 env:
   IMAGE_TAG : ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.PROD_GCP_PROJECT_ID }}/brain-r2r/r2r:latest
 jobs:
