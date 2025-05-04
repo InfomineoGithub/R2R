@@ -3,6 +3,12 @@ name: Code Quality Checks
 on:
   push:
     branches: [ '**' ]
+
+    paths:
+      - 'js/**'
+      - 'py/**'
+      - 'services/**'
+      
   pull_request:
 
 jobs:

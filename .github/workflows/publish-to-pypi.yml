@@ -5,6 +5,11 @@ on:
     branches:
       - dev
       - dev-minor
+      
+    paths:
+      - 'js/**'
+      - 'py/**'
+      - 'services/**'
   workflow_dispatch:
 
 jobs:

@@ -2,7 +2,12 @@ name: Staging - Build and Publish R2R Docker Image
 
 on:
   push:
-    branches: [ 'dev' ]
+    branches: 
+      - dev
+    paths:
+      - 'js/**'
+      - 'py/**'
+      - 'services/**'
 
 env:
   # REGISTRY_IMAGE: sciphiai/r2r
