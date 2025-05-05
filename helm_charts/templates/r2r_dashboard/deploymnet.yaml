@@ -5,6 +5,8 @@ metadata:
   namespace: {{ .Values.namespace }}
   labels:
     {{- include "infomineo-chatbot.labels" . | nindent 4 }}
+  annotations:
+    secret.reloader.stakater.com/reload: "r2r-dashboard-env-secrets"
 spec:
   replicas: 1
   selector:
