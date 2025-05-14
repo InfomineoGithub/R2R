@@ -6,6 +6,7 @@ def id_to_shorthand(id: str) -> str:
     return str(id)[:7]
 
 
+
 def format_search_results_for_llm(
     results,
 ) -> str:
