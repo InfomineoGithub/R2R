@@ -4,5 +4,5 @@ helm:
     value: europe-west1-docker.pkg.dev/brain-prod-450115/brain-r2r/r2r
     forcestring: true
   - name: knowledgeBaseServiceR2R.image.tag
-    value: latest@sha256:c06d405c5cf9fbfd8e5c82542f79008d176a221fd64e3ca671cc43577a27f893
+    value: latest@sha256:086191d4e713bb1d09836b1a9e836047bdc2737d3ba08671755472a22414e397
     forcestring: true
