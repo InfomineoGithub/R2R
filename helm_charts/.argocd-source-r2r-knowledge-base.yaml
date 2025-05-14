@@ -1,8 +1,8 @@
 helm:
   parameters:
   - name: knowledgeBaseServiceR2R.image.repository
-    value: europe-west1-docker.pkg.dev/brain-staging-450115/brain-r2r/r2r
+    value: europe-west1-docker.pkg.dev/brain-prod-450115/brain-r2r/r2r
     forcestring: true
   - name: knowledgeBaseServiceR2R.image.tag
-    value: latest@sha256:972a8f969456e30f6d581faee64113b57312e7a82307bfb657d70b79961820c9
+    value: latest@sha256:a45469d69adea8f7938c20fc8a4c5247cb24c9a0c5b3843d3d5dec3b70f62d29
     forcestring: true
