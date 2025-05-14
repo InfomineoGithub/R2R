@@ -2,8 +2,8 @@ name: Production - Build and Publish R2R Docker Image
 
 on:
   push:
-    branches: [ 'main' ]
-
+    branches: 
+      - main
     paths:
       - 'js/**'
       - 'py/**'
