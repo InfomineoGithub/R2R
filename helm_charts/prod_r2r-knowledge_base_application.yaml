@@ -5,11 +5,13 @@ metadata:
   namespace: argocd
   annotations:
     argocd-image-updater.argoproj.io/image-list: |
-      europe-west1-docker.pkg.dev/brain-prod-450115/brain-r2r/r2r
+      r2r=europe-west1-docker.pkg.dev/brain-prod-450115/brain-r2r/r2r:latest
     argocd.argoproj.io/compare-options: IgnoreExtraneous
     argocd-image-updater.argoproj.io/write-back-method: git
-    argocd-image-updater.argoproj.io/git-branch: main
-    argocd-image-updater.argoproj.io/image-update-strategy: latest
+    argocd-image-updater.argoproj.io/git-branch: dev
+    argocd-image-updater.argoproj.io/r2r.update-strategy: digest
+    argocd-image-updater.argoproj.io/r2r.helm.image-name: "knowledgeBaseServiceR2R.image.repository"
+    argocd-image-updater.argoproj.io/r2r.helm.image-tag: "knowledgeBaseServiceR2R.image.tag"
 spec:
   project: default
   source:
