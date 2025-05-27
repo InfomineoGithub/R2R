@@ -1,8 +1,0 @@
-helm:
-  parameters:
-  - name: knowledgeBaseServiceR2R.image.repository
-    value: europe-west1-docker.pkg.dev/brain-prod-450115/brain-r2r/r2r
-    forcestring: true
-  - name: knowledgeBaseServiceR2R.image.tag
-    value: latest@sha256:dad9ed5c961d904026cb0388db59a6a87e138a01dc57d4fbe34ae0640da00819
-    forcestring: true
