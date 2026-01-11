@@ -360,6 +360,57 @@ class DocumentsRouter(BaseRouterV3):
                 ingestion_mode=ingestion_mode,
                 ingestion_config=ingestion_config,
             )
+            # fast path for store-only
+            if ingestion_mode == IngestionMode.store_only and file:
+                # Store the file and create document response without orchestration
+                file_data = await self._process_file(file)
+                if not file.filename:
+                    raise R2RException(
+                        status_code=422,
+                        message="Uploaded file must have a filename.",
+                    )
+                file_ext = file.filename.split(".")[-1]
+                content_length = file_data["content_length"]
+                document_id = id or generate_document_id(file_data["filename"], auth_user.id)
+                file_content = BytesIO(base64.b64decode(file_data["content"]))
+                # store file to db
+                await self.providers.database.files_handler.store_file(
+                    document_id,
+                    file_data["filename"],
+                    file_content,
+                    file_data["content_type"],
+                )
+                await self.services.ingestion.ingest_file_ingress(
+                    file_data=file_data,
+                    user=auth_user,
+                    document_id=document_id,
+                    size_in_bytes=content_length,
+                    metadata=metadata or {},
+                    version="v0",
+                )
+                # IMPORTANT:
+                # The store-only path bypasses the normal ingestion workflows that
+                # associate documents to collections and increment collection document_count.
+                # Without this, clients relying on collection membership (like the chat app)
+                # won't be able to list/find the stored document later.
+                if collection_ids:
+                    for collection_id in collection_ids:
+                        try:
+                            await self.providers.database.collections_handler.assign_document_to_collection_relational(
+                                document_id=document_id,
+                                collection_id=collection_id,
+                            )
+                        except R2RException as e:
+                            # Ignore "already assigned" to keep ingestion idempotent.
+                            if getattr(e, "status_code", None) == 409:
+                                continue
+                            raise
+                return {
+                    "message": "Document stored successfully (store-only mode).",
+                    "document_id": str(document_id),
+                    "task_id": None,
+                }
+
             if not file and not raw_text and not chunks:
                 raise R2RException(
                     status_code=422,
