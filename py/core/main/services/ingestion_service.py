@@ -103,14 +103,21 @@ class IngestionService:
             if len(existing_document_info) > 0:
                 existing_doc = existing_document_info[0]
                 if existing_doc.ingestion_status == IngestionStatus.SUCCESS:
-                    raise R2RException(
-                        status_code=409,
-                        message=(
-                            f"Document {document_id} already exists. "
-                            "Submit a DELETE request to `/documents/{document_id}` "
-                            "to delete this document and allow for re-ingestion."
-                        ),
+                    # Allow re-ingestion of "store-only" placeholder documents.
+                    # These are SUCCESS (because the file is safely stored) but have
+                    # not been parsed/chunked/embedded yet.
+                    is_store_only = bool(
+                        (existing_doc.metadata or {}).get("r2r_store_only", False)  # type: ignore
                     )
+                    if not is_store_only:
+                        raise R2RException(
+                            status_code=409,
+                            message=(
+                                f"Document {document_id} already exists. "
+                                "Submit a DELETE request to `/documents/{document_id}` "
+                                "to delete this document and allow for re-ingestion."
+                            ),
+                        )
                 elif existing_doc.ingestion_status != IngestionStatus.FAILED:
                     raise R2RException(
                         status_code=409,
