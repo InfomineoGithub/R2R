@@ -37,7 +37,6 @@ services:
     build:
       context: ../py
       dockerfile: Dockerfile
-    pull_policy: never
     ports:
       - "7272:7272"
     env_file:
