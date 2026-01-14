@@ -451,7 +451,7 @@ class DocumentsRouter(BaseRouterV3):
                         if getattr(e, "status_code", None) == 409:
                             continue
                         raise
-                return {
+                return { # type: ignore
                     "message": "Document stored successfully (store-only mode).",
                     "document_id": str(document_id),
                     "task_id": None,
