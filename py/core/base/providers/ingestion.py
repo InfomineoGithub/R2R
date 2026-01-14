@@ -26,6 +26,7 @@ class ChunkingStrategy(str, Enum):
 class IngestionMode(str, Enum):
     hi_res = "hi-res"
     fast = "fast"
+    store_only = "store-only"
     custom = "custom"
 
 

@@ -62,3 +62,7 @@ go.work.sum
 .ruff_cache/
 *.egg-info
 .venv
+
+r2r.env
+
+docker/user_configs/my_custom_config.toml

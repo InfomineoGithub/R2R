@@ -16,6 +16,7 @@ from pydantic import Json
 from core.base import (
     IngestionConfig,
     IngestionMode,
+    IngestionStatus,
     R2RException,
     SearchMode,
     SearchSettings,
@@ -39,7 +40,10 @@ from core.base.api.models import (
     WrappedIngestionResponse,
     WrappedRelationshipsResponse,
 )
-from core.utils import update_settings_from_dict
+from core.utils import (
+    generate_default_user_collection_id,
+    update_settings_from_dict,
+)
 
 from ...abstractions import R2RProviders, R2RServices
 from ...config import R2RConfig
@@ -270,6 +274,7 @@ class DocumentsRouter(BaseRouterV3):
                     "Ingestion modes:\n"
                     "- `hi-res`: Thorough ingestion with full summaries and enrichment.\n"
                     "- `fast`: Quick ingestion with minimal enrichment and no summaries.\n"
+                    "- `store-only`: Store the file and register a SUCCESS document, but skip parsing/chunking/embedding.\n"
                     "- `custom`: Full control via `ingestion_config`.\n\n"
                     "If `filters` or `limit` (in `ingestion_config`) are provided alongside `hi-res` or `fast`, "
                     "they will override the default settings for that mode."
@@ -360,6 +365,98 @@ class DocumentsRouter(BaseRouterV3):
                 ingestion_mode=ingestion_mode,
                 ingestion_config=ingestion_config,
             )
+            # fast path for store-only
+            if ingestion_mode == IngestionMode.store_only and file:
+                # Store the file and create the document without orchestration.
+                # This must still persist the document row + collection membership,
+                # otherwise clients can't list/download it later.
+                file_data = await self._process_file(file)
+                if not file.filename:
+                    raise R2RException(
+                        status_code=422,
+                        message="Uploaded file must have a filename.",
+                    )
+                content_length = file_data["content_length"]
+                document_id = id or generate_document_id(
+                    file_data["filename"], auth_user.id
+                )
+
+                # Prevent accidentally overwriting a fully-ingested (non store-only)
+                # document with the same id.
+                existing = (
+                    await self.providers.database.documents_handler.get_documents_overview(
+                        offset=0,
+                        limit=1,
+                        filter_user_ids=[auth_user.id],
+                        filter_document_ids=[document_id],
+                    )
+                )["results"]
+                if existing:
+                    existing_doc = existing[0]
+                    if not (existing_doc.metadata or {}).get("r2r_store_only", False):  # type: ignore
+                        raise R2RException(
+                            status_code=409,
+                            message=(
+                                f"Document {document_id} already exists. "
+                                "Use a non store-only ingestion mode, or DELETE the document first."
+                            ),
+                        )
+                file_content = BytesIO(base64.b64decode(file_data["content"]))
+                await self.providers.database.files_handler.store_file(
+                    document_id,
+                    file_data["filename"],
+                    file_content,
+                    file_data["content_type"],
+                )
+
+                # Create the document row and mark it SUCCESS (store-only means no
+                # parsing/chunking/embedding will happen).
+                #
+                # We set a metadata flag so a later "full" ingestion can safely
+                # re-ingest this document_id without forcing a DELETE first.
+                store_only_metadata = {**(metadata or {}), "r2r_store_only": True}
+                document_info = (
+                    self.services.ingestion.create_document_info_from_file(
+                        document_id=document_id,
+                        user=auth_user,
+                        file_name=file_data["filename"],
+                        metadata=store_only_metadata,
+                        version="v0",
+                        size_in_bytes=content_length,
+                    )
+                )
+                document_info.ingestion_status = IngestionStatus.SUCCESS
+                await self.providers.database.documents_handler.upsert_documents_overview(
+                    document_info
+                )
+
+                target_collection_ids = (
+                    list(collection_ids)
+                    if collection_ids
+                    else [generate_default_user_collection_id(auth_user.id)]
+                )
+                # IMPORTANT:
+                # The store-only path bypasses the normal ingestion workflows that
+                # associate documents to collections and increment collection document_count.
+                # Without this, clients relying on collection membership (like the chat app)
+                # won't be able to list/find the stored document later.
+                for collection_id in target_collection_ids:
+                    try:
+                        await self.providers.database.collections_handler.assign_document_to_collection_relational(
+                            document_id=document_id,
+                            collection_id=collection_id,
+                        )
+                    except R2RException as e:
+                        # Ignore "already assigned" to keep ingestion idempotent.
+                        if getattr(e, "status_code", None) == 409:
+                            continue
+                        raise
+                return { # type: ignore
+                    "message": "Document stored successfully (store-only mode).",
+                    "document_id": str(document_id),
+                    "task_id": None,
+                }
+
             if not file and not raw_text and not chunks:
                 raise R2RException(
                     status_code=422,
