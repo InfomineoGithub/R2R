@@ -25,9 +25,6 @@ __all__ = [
     "GraphExtractionStatus",
     "GraphConstructionStatus",
     "DocumentType",
-    # Embedding abstractions
-    "EmbeddingPurpose",
-    "default_embedding_prefixes",
     # Exception abstractions
     "R2RDocumentProcessingError",
     "R2RException",
@@ -72,8 +69,6 @@ __all__ = [
     "AgentConfig",
     "Conversation",
     "Message",
-    "Tool",
-    "ToolResult",
     ## API
     # Auth Responses
     "TokenResponse",
@@ -92,20 +87,22 @@ __all__ = [
     # Crypto provider
     "CryptoConfig",
     "CryptoProvider",
-    # Email provider
-    "EmailConfig",
-    "EmailProvider",
     # Database providers
     "LimitSettings",
     "DatabaseConfig",
     "DatabaseProvider",
     "Handler",
     "PostgresConfigurationSettings",
+    # Email provider
+    "EmailConfig",
+    "EmailProvider",
     # Embedding provider
     "EmbeddingConfig",
     "EmbeddingProvider",
+    # File provider
+    "FileConfig",
+    "FileProvider",
     # Ingestion provider
-    "IngestionMode",
     "IngestionConfig",
     "IngestionProvider",
     "ChunkingStrategy",
@@ -123,7 +120,6 @@ __all__ = [
     "generate_extraction_id",
     "generate_default_user_collection_id",
     "generate_user_id",
-    "increment_version",
     "yield_sse_event",
     "dump_collector",
     "dump_obj",

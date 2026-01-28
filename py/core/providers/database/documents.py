@@ -210,7 +210,7 @@ class PostgresDocumentsHandler(Handler):
                     async with (
                         self.connection_manager.pool.get_connection() as conn  # type: ignore
                     ):
-                        async with conn.transaction():
+                        async with conn.transaction(isolation='serializable'):
                             # Lock the row for update
                             check_query = f"""
                             SELECT ingestion_attempt_number, ingestion_status FROM {self._get_table_name(PostgresDocumentsHandler.TABLE_NAME)}
@@ -316,6 +316,7 @@ class PostgresDocumentsHandler(Handler):
                 except (
                     asyncpg.exceptions.UniqueViolationError,
                     asyncpg.exceptions.DeadlockDetectedError,
+                    asyncpg.exceptions.SerializationFailureError,
                 ) as e:
                     retries += 1
                     if retries == max_retries:
@@ -513,7 +514,8 @@ class PostgresDocumentsHandler(Handler):
         filter_collection_ids: Optional[list[UUID]] = None,
         include_summary_embedding: Optional[bool] = True,
         filters: Optional[dict[str, Any]] = None,
-        sort_order: str = "DESC",  # Add this parameter with a default of DESC
+        sort_order: str = "DESC",
+        owner_only: bool = False,
     ) -> dict[str, Any]:
         """Fetch overviews of documents with optional offset/limit pagination.
 
@@ -560,7 +562,7 @@ class PostgresDocumentsHandler(Handler):
             if filter_condition:
                 conditions.append(filter_condition)
             # Make sure we keep adding to the same params list
-            # params.extend(filter_params)
+            params.extend(filter_params)
             param_index += len(filter_params)
 
         # -------------------------------------------
@@ -575,19 +577,33 @@ class PostgresDocumentsHandler(Handler):
 
             # For owner/collection filters, we used OR logic previously
             # so we combine them into a single sub-condition in parentheses
-            or_conditions = []
+            owner_conditions = []
+            collection_conditions = []
+
             if filter_user_ids:
-                or_conditions.append(f"owner_id = ANY(${param_index})")
+                owner_conditions.append(f"owner_id = ANY(${param_index})")
                 params.append(filter_user_ids)
                 param_index += 1
 
             if filter_collection_ids:
-                or_conditions.append(f"collection_ids && ${param_index}")
+                collection_conditions.append(
+                    f"collection_ids && ${param_index}"
+                )
                 params.append(filter_collection_ids)
                 param_index += 1
 
-            if or_conditions:
-                conditions.append(f"({' OR '.join(or_conditions)})")
+            if owner_only:
+                if owner_conditions:
+                    conditions.append(f"({' OR '.join(owner_conditions)})")
+
+                if collection_conditions:
+                    conditions.append(
+                        f"({' OR '.join(collection_conditions)})"
+                    )
+            elif (
+                combined_conditions := owner_conditions + collection_conditions
+            ):
+                conditions.append(f"({' OR '.join(combined_conditions)})")
 
         # -------------------------
         # Build the full query
@@ -595,6 +611,7 @@ class PostgresDocumentsHandler(Handler):
         base_query = (
             f"FROM {self._get_table_name(PostgresDocumentsHandler.TABLE_NAME)}"
         )
+        
         if conditions:
             # Combine everything with AND
             base_query += " WHERE " + " AND ".join(conditions)

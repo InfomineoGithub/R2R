@@ -36,6 +36,7 @@ from core.base import (
     WebSearchResult,
     format_search_results_for_llm,
 )
+from core.base.agent.tools.registry import ToolRegistry
 from core.base.api.models import RAGResponse, User
 from core.utils import (
     CitationTracker,
@@ -103,6 +104,7 @@ class AgentFactory:
         """
         # Create a deep copy of the config to avoid modifying the original
         agent_config = deepcopy(config)
+        tool_registry = ToolRegistry()
 
         # Handle tool specifications based on mode
         if mode == "rag":
@@ -156,6 +158,7 @@ class AgentFactory:
                         knowledge_search_method=knowledge_search_method,
                         content_method=content_method,
                         file_search_method=file_search_method,
+                        tool_registry=tool_registry,
                     )
             else:
                 if use_xml_format:
@@ -169,6 +172,7 @@ class AgentFactory:
                         knowledge_search_method=knowledge_search_method,
                         content_method=content_method,
                         file_search_method=file_search_method,
+                        tool_registry=tool_registry,
                     )
                 else:
                     return R2RRAGAgent(
@@ -181,6 +185,7 @@ class AgentFactory:
                         knowledge_search_method=knowledge_search_method,
                         content_method=content_method,
                         file_search_method=file_search_method,
+                        tool_registry=tool_registry,
                     )
         else:
             # Research mode agents
@@ -290,7 +295,7 @@ class RetrievalService(Service):
         ):
             query_vector = (
                 await self.providers.completion_embedding.async_get_embedding(
-                    query  # , EmbeddingPurpose.QUERY
+                    text=query
                 )
             )
 
@@ -620,7 +625,7 @@ class RetrievalService(Service):
         """
         # Precompute the embedding of alt_text
         vec = await self.providers.completion_embedding.async_get_embedding(
-            alt_text  # , EmbeddingPurpose.QUERY
+            text=alt_text
         )
 
         # chunk search
@@ -666,7 +671,7 @@ class RetrievalService(Service):
         ):
             query_vector = (
                 await self.providers.completion_embedding.async_get_embedding(
-                    query_text  # , EmbeddingPurpose.QUERY
+                    text=query_text
                 )
             )
 
@@ -946,14 +951,14 @@ class RetrievalService(Service):
                     query
                 )
             )
-        result = (
+
+        return (
             await self.providers.database.documents_handler.search_documents(
                 query_text=query,
                 settings=settings,
                 query_embedding=query_embedding,
             )
         )
-        return result
 
     async def completion(
         self,
@@ -1020,9 +1025,7 @@ class RetrievalService(Service):
             # 3) Build context from aggregator
             collector = SearchResultsCollector()
             collector.add_aggregate_result(aggregated_results)
-            context_str = format_search_results_for_llm(
-                aggregated_results, collector
-            )
+            context_str = format_search_results_for_llm(aggregated_results)
 
             # 4) Prepare system+task messages
             system_prompt_name = system_prompt_name or "system"
@@ -1363,7 +1366,7 @@ class RetrievalService(Service):
                 effective_generation_config = research_generation_config
 
             # Set appropriate LLM model based on mode if not explicitly specified
-            if "model" not in effective_generation_config.__fields_set__:
+            if "model" not in effective_generation_config.model_fields_set:
                 if mode == "rag":
                     effective_generation_config.model = (
                         self.config.app.quality_llm
@@ -1783,7 +1786,7 @@ class RetrievalService(Service):
 
                 user_id = filter_starts_with_and_then_or[0]["owner_id"]["$eq"]
                 collection_ids = [
-                    UUID(ele)
+                    str(ele)
                     for ele in filter_starts_with_and_then_or[1][
                         "collection_ids"
                     ]["$overlap"]
@@ -1797,9 +1800,9 @@ class RetrievalService(Service):
                 return None, []
         elif filter_starts_with_or:
             try:
-                user_id = filter_starts_with_or[0]["owner_id"]["$eq"]
+                user_id = str(filter_starts_with_or[0]["owner_id"]["$eq"])
                 collection_ids = [
-                    UUID(ele)
+                    str(ele)
                     for ele in filter_starts_with_or[1]["collection_ids"][
                         "$overlap"
                     ]
@@ -1808,6 +1811,7 @@ class RetrievalService(Service):
             except Exception as e:
                 logger.error(
                     """Error parsing filters: expected format {'$or': [{'owner_id': {'$eq': 'uuid-string-here'}, 'collection_ids': {'$overlap': ['uuid-of-some-collection']}}]}, if you are a superuser then this error can be ignored."""
+                    f"\n Instead, got: {filters}.\n\n Error: {e}"
                 )
                 return None, []
         else:
@@ -1959,10 +1963,9 @@ class RetrievalService(Service):
             web_response = WebSearchResult.from_serper_results(raw_results)
 
             # Create an AggregateSearchResult with the web search results
+            # FIXME: Need to understand why we would have had this referencing only web_response.organic_results
             agg_result = AggregateSearchResult(
-                chunk_search_results=None,
-                graph_search_results=None,
-                web_search_results=web_response.organic_results,
+                web_search_results=[web_response]
             )
 
             # Log the search for monitoring purposes

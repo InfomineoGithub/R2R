@@ -3,8 +3,9 @@ from io import BytesIO
 from typing import Any, AsyncGenerator
 
 import httpx
+from httpx import AsyncClient, ConnectError, RequestError, Response
 
-from shared.abstractions import R2RException
+from shared.abstractions import R2RClientException, R2RException
 
 from .asnyc_methods import (
     ChunksSDK,
@@ -31,7 +32,7 @@ class R2RAsyncClient(BaseClient):
         custom_client=None,
     ):
         super().__init__(base_url, timeout)
-        self.client = custom_client or httpx.AsyncClient(timeout=timeout)
+        self.client = custom_client or AsyncClient(timeout=timeout)
         self.chunks = ChunksSDK(self)
         self.collections = CollectionsSDK(self)
         self.conversations = ConversationsSDK(self)
@@ -47,18 +48,6 @@ class R2RAsyncClient(BaseClient):
         self, method: str, endpoint: str, version: str = "v3", **kwargs
     ):
         url = self._get_full_url(endpoint, version)
-        if (
-            "https://api.sciphi.ai" in url
-            and ("login" not in endpoint)
-            and ("create" not in endpoint)
-            and ("users" not in endpoint)
-            and ("health" not in endpoint)
-            and (not self.access_token and not self.api_key)
-        ):
-            raise R2RException(
-                status_code=401,
-                message="Access token or api key is required to access `https://api.sciphi.ai`. To change the base url, use `set_base_url` method or set the local environment variable `R2R_API_BASE` to `http://localhost:7272`.",
-            )
         request_args = self._prepare_request_args(endpoint, **kwargs)
 
         try:
@@ -69,10 +58,15 @@ class R2RAsyncClient(BaseClient):
             else:
                 return BytesIO(response.content)
 
-        except httpx.RequestError as e:
+        except ConnectError as e:
+            raise R2RClientException(
+                message="Unable to connect to the server. Check your network connection and the server URL."
+            ) from e
+
+        except RequestError as e:
             raise R2RException(
-                status_code=500,
                 message=f"Request failed: {str(e)}",
+                status_code=500,
             ) from e
 
     async def _make_streaming_request(
@@ -91,7 +85,7 @@ class R2RAsyncClient(BaseClient):
                         except Exception:
                             yield line
 
-    async def _handle_response(self, response):
+    async def _handle_response(self, response: Response) -> None:
         if response.status_code >= 400:
             try:
                 error_content = response.json()
@@ -133,3 +127,9 @@ class R2RAsyncClient(BaseClient):
 
     def set_base_url(self, base_url: str) -> None:
         self.base_url = base_url
+
+    def set_project_name(self, project_name: str | None) -> None:
+        self.project_name = project_name
+
+    def unset_project_name(self) -> None:
+        self.project_name = None

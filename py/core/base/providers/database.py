@@ -12,6 +12,7 @@ from core.base.abstractions import (
     GraphEnrichmentSettings,
     GraphSearchSettings,
 )
+from core.utils.context import get_current_project_schema
 
 from .base import Provider, ProviderConfig
 
@@ -63,7 +64,8 @@ class Handler(ABC):
         self.connection_manager = connection_manager
 
     def _get_table_name(self, base_name: str) -> str:
-        return f"{self.project_name}.{base_name}"
+        """Get the full qualified table name with the current project schema."""
+        return f'"{get_current_project_schema() or self.project_name}"."{base_name}"'
 
     @abstractmethod
     def create_tables(self):
@@ -137,7 +139,7 @@ class DatabaseConfig(ProviderConfig):
     default_collection_description: str = "Your default collection."
     collection_summary_system_prompt: str = "system"
     collection_summary_prompt: str = "collection_summary"
-    enable_fts: bool = False
+    disable_create_extension: bool = False
 
     # Graph settings
     batch_size: Optional[int] = 1

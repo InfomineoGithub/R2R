@@ -15,13 +15,16 @@ from core.providers import (
     LiteLLMCompletionProvider,
     LiteLLMEmbeddingProvider,
     MailerSendEmailProvider,
+    MistralOCRProvider,
     OllamaEmbeddingProvider,
     OpenAICompletionProvider,
     OpenAIEmbeddingProvider,
     PostgresDatabaseProvider,
+    PostgresFileProvider,
     R2RAuthProvider,
     R2RCompletionProvider,
     R2RIngestionProvider,
+    S3FileProvider,
     SendGridEmailProvider,
     SimpleOrchestrationProvider,
     SupabaseAuthProvider,
@@ -59,6 +62,7 @@ class R2RProviders(BaseModel):
         | OpenAIEmbeddingProvider
         | OllamaEmbeddingProvider
     )
+    file: PostgresFileProvider | S3FileProvider
     completion_embedding: (
         LiteLLMEmbeddingProvider
         | OpenAIEmbeddingProvider
@@ -70,6 +74,7 @@ class R2RProviders(BaseModel):
         | OpenAICompletionProvider
         | R2RCompletionProvider
     )
+    ocr: MistralOCRProvider
     orchestration: HatchetOrchestrationProvider | SimpleOrchestrationProvider
     scheduler: APSchedulerProvider
 

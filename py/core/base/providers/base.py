@@ -31,6 +31,7 @@ class InnerConfig(BaseModel, ABC):
 
 class AppConfig(InnerConfig):
     project_name: Optional[str] = None
+    user_tools_path: Optional[str] = None
     default_max_documents_per_user: Optional[int] = 100
     default_max_chunks_per_user: Optional[int] = 10_000
     default_max_collections_per_user: Optional[int] = 5
@@ -50,7 +51,6 @@ class AppConfig(InnerConfig):
         "md": 2_000_000,
         "tsv": 2_000_000,
         "csv": 5_000_000,
-        "xml": 2_000_000,
         "html": 5_000_000,
         # Office docs
         "doc": 10_000_000,
@@ -84,7 +84,7 @@ class AppConfig(InnerConfig):
 class ProviderConfig(BaseModel, ABC):
     """A base provider configuration class."""
 
-    app: AppConfig  # Add an app_config field
+    app: Optional[AppConfig] = None  # Add an app_config field
     extra_fields: dict[str, Any] = {}
     provider: Optional[str] = None
 

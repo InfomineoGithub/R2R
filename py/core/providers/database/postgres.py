@@ -14,7 +14,6 @@ from .chunks import PostgresChunksHandler
 from .collections import PostgresCollectionsHandler
 from .conversations import PostgresConversationsHandler
 from .documents import PostgresDocumentsHandler
-from .files import PostgresFilesHandler
 from .graphs import (
     PostgresCommunitiesHandler,
     PostgresEntitiesHandler,
@@ -66,7 +65,6 @@ class PostgresDatabaseProvider(DatabaseProvider):
     relationships_handler: PostgresRelationshipsHandler
     graphs_handler: PostgresGraphsHandler
     prompts_handler: PostgresPromptsHandler
-    files_handler: PostgresFilesHandler
     conversations_handler: PostgresConversationsHandler
     limits_handler: PostgresLimitsHandler
     maintenance_handler: PostgresMaintenanceHandler
@@ -101,7 +99,8 @@ class PostgresDatabaseProvider(DatabaseProvider):
         self.port = int(self.port)
 
         self.project_name = (
-            config.app.project_name
+            config.app
+            and config.app.project_name
             or os.getenv("R2R_PROJECT_NAME")
             or "r2r_default"
         )
@@ -193,9 +192,6 @@ class PostgresDatabaseProvider(DatabaseProvider):
         self.prompts_handler = PostgresPromptsHandler(
             self.project_name, self.connection_manager
         )
-        self.files_handler = PostgresFilesHandler(
-            self.project_name, self.connection_manager
-        )
         self.limits_handler = PostgresLimitsHandler(
             project_name=self.project_name,
             connection_manager=self.connection_manager,
@@ -211,10 +207,15 @@ class PostgresDatabaseProvider(DatabaseProvider):
         await self.connection_manager.initialize(self.pool)
 
         async with self.pool.get_connection() as conn:
-            await conn.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;")
+            if not self.config.disable_create_extension:
+                await conn.execute(
+                    'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'
+                )
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+                await conn.execute(
+                    "CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;"
+                )
 
             # Create schema if it doesn't exist
             await conn.execute(
@@ -227,7 +228,6 @@ class PostgresDatabaseProvider(DatabaseProvider):
         await self.users_handler.create_tables()
         await self.chunks_handler.create_tables()
         await self.prompts_handler.create_tables()
-        await self.files_handler.create_tables()
         await self.graphs_handler.create_tables()
         await self.communities_handler.create_tables()
         await self.entities_handler.create_tables()
@@ -235,6 +235,21 @@ class PostgresDatabaseProvider(DatabaseProvider):
         await self.conversations_handler.create_tables()
         await self.limits_handler.create_tables()
         await self.maintenance_handler.create_tables()
+
+    async def schema_exists(self, schema_name: str) -> bool:
+        """Check if a PostgreSQL schema exists."""
+        try:
+            async with self.pool.get_connection() as conn:
+                query = """
+                SELECT EXISTS(
+                    SELECT 1 FROM information_schema.schemata
+                    WHERE schema_name = $1
+                );
+                """
+                return await conn.fetchval(query, schema_name)
+        except Exception as e:
+            logger.error(f"Error checking schema existence: {e}")
+            raise
 
     def _get_postgres_configuration_settings(
         self, config: DatabaseConfig

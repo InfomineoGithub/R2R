@@ -10,7 +10,7 @@ from core.providers import (
 )
 from core.utils.sentry import init_sentry
 
-from .abstractions import R2RServices
+from .abstractions import R2RProviders, R2RServices
 from .api.v3.chunks_router import ChunksRouter
 from .api.v3.collections_router import CollectionsRouter
 from .api.v3.conversations_router import ConversationsRouter
@@ -22,6 +22,7 @@ from .api.v3.retrieval_router import RetrievalRouter
 from .api.v3.system_router import SystemRouter
 from .api.v3.users_router import UsersRouter
 from .config import R2RConfig
+from .middleware.project_schema import ProjectSchemaMiddleware
 
 
 class R2RApp:
@@ -32,6 +33,7 @@ class R2RApp:
             HatchetOrchestrationProvider | SimpleOrchestrationProvider
         ),
         services: R2RServices,
+        providers: R2RProviders,
         chunks_router: ChunksRouter,
         collections_router: CollectionsRouter,
         conversations_router: ConversationsRouter,
@@ -47,6 +49,7 @@ class R2RApp:
 
         self.config = config
         self.services = services
+        self.providers = providers
         self.chunks_router = chunks_router
         self.collections_router = collections_router
         self.conversations_router = conversations_router
@@ -72,7 +75,7 @@ class R2RApp:
             )
 
         self._setup_routes()
-        self._apply_cors()
+        self._apply_middleware()
 
     def _setup_routes(self):
         self.app.include_router(self.chunks_router, prefix="/v3")
@@ -94,14 +97,21 @@ class R2RApp:
                 routes=self.app.routes,
             )
 
-    def _apply_cors(self):
+    def _apply_middleware(self):
         origins = ["*", "http://localhost:3000", "http://localhost:7272"]
+        project_name = self.providers.database.project_name
+
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+        )
+
+        self.app.add_middleware(
+            ProjectSchemaMiddleware,
+            default_schema=project_name,
         )
 
     async def serve(self, host: str = "0.0.0.0", port: int = 7272):

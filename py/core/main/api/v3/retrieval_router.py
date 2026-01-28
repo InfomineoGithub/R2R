@@ -1,4 +1,5 @@
 import logging
+import textwrap
 from typing import Any, Literal, Optional
 from uuid import UUID
 
@@ -25,7 +26,6 @@ from core.base.api.models import (
 from ...abstractions import R2RProviders, R2RServices
 from ...config import R2RConfig
 from .base_router import BaseRouterV3
-from .examples import EXAMPLES
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,54 @@ class RetrievalRouter(BaseRouterV3):
             "/retrieval/search",
             dependencies=[Depends(self.rate_limit_dependency)],
             summary="Search R2R",
-            openapi_extra=EXAMPLES["search"],
+            openapi_extra={
+                "x-codeSamples": [
+                    {
+                        "lang": "Python",
+                        "source": textwrap.dedent(
+                            """
+                            from r2r import R2RClient
+
+                            client = R2RClient()
+                            # if using auth, do client.login(...)
+
+                            response = client.retrieval.search(
+                                query="What is DeepSeek R1?",
+                            )
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "JavaScript",
+                        "source": textwrap.dedent(
+                            """
+                            const { r2rClient } = require("r2r-js");
+
+                            const client = new r2rClient();
+                            // if using auth, do client.login(...)
+
+                            const response = await client.retrieval.search({
+                                query: "What is DeepSeek R1?",
+                            });
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "Shell",
+                        "source": textwrap.dedent(
+                            """
+                            # Basic search
+                            curl -X POST "http://localhost:7272/v3/retrieval/search" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer YOUR_API_KEY" \\
+                                -d '{
+                                "query": "What is DeepSeek R1?"
+                            }'
+                            """
+                        ),
+                    },
+                ]
+            },
         )
         @self.base_endpoint
         async def search_app(
@@ -179,7 +226,7 @@ class RetrievalRouter(BaseRouterV3):
             Each result contains the matched text, document ID, and relevance score.
 
             """
-            if query == "":
+            if not query:
                 raise R2RException("Query cannot be empty", 400)
             effective_settings = self._prepare_search_settings(
                 auth_user, search_mode, search_settings
@@ -195,7 +242,56 @@ class RetrievalRouter(BaseRouterV3):
             dependencies=[Depends(self.rate_limit_dependency)],
             summary="RAG Query",
             response_model=None,
-            openapi_extra=EXAMPLES["rag"],
+            openapi_extra={
+                "x-codeSamples": [
+                    {
+                        "lang": "Python",
+                        "source": textwrap.dedent(
+                            """
+                            from r2r import R2RClient
+
+                            client = R2RClient()
+                            # when using auth, do client.login(...)
+
+                            # Basic RAG request
+                            response = client.retrieval.rag(
+                                query="What is DeepSeek R1?",
+                            )
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "JavaScript",
+                        "source": textwrap.dedent(
+                            """
+                            const { r2rClient } = require("r2r-js");
+
+                            const client = new r2rClient();
+                            // when using auth, do client.login(...)
+
+                            // Basic RAG request
+                            const response = await client.retrieval.rag({
+                                query: "What is DeepSeek R1?",
+                            });
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "Shell",
+                        "source": textwrap.dedent(
+                            """
+                            # Basic RAG request
+                            curl -X POST "http://localhost:7272/v3/retrieval/rag" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer YOUR_API_KEY" \\
+                                -d '{
+                                "query": "What is DeepSeek R1?"
+                            }'
+                            """
+                        ),
+                    },
+                ]
+            },
         )
         @self.base_endpoint
         async def rag_app(
@@ -257,7 +353,7 @@ class RetrievalRouter(BaseRouterV3):
             Fine-tune the language model's behavior with `rag_generation_config`:
             ```json
             {
-                "model": "openai/gpt-4o-mini",  // Model to use
+                "model": "openai/gpt-4.1-mini",  // Model to use
                 "temperature": 0.7,              // Control randomness (0-1)
                 "max_tokens": 1500,              // Maximum output length
                 "stream": true                   // Enable token streaming
@@ -293,7 +389,7 @@ class RetrievalRouter(BaseRouterV3):
             ```
             """
 
-            if "model" not in rag_generation_config.__fields_set__:
+            if "model" not in rag_generation_config.model_fields_set:
                 rag_generation_config.model = self.config.app.quality_llm
 
             effective_settings = self._prepare_search_settings(
@@ -327,14 +423,124 @@ class RetrievalRouter(BaseRouterV3):
                     stream_generator(), media_type="text/event-stream"
                 )  # type: ignore
             else:
-                # ========== Non-streaming path ==========
                 return response
 
         @self.router.post(
             "/retrieval/agent",
             dependencies=[Depends(self.rate_limit_dependency)],
             summary="RAG-powered Conversational Agent",
-            openapi_extra=EXAMPLES["agent"],
+            openapi_extra={
+                "x-codeSamples": [
+                    {
+                        "lang": "Python",
+                        "source": textwrap.dedent(
+                            """
+                            from r2r import (
+                                R2RClient,
+                                ThinkingEvent,
+                                ToolCallEvent,
+                                ToolResultEvent,
+                                CitationEvent,
+                                FinalAnswerEvent,
+                                MessageEvent,
+                            )
+
+                            client = R2RClient()
+                            # when using auth, do client.login(...)
+
+                            # Basic synchronous request
+                            response = client.retrieval.agent(
+                                message={
+                                    "role": "user",
+                                    "content": "Do a deep analysis of the philosophical implications of DeepSeek R1"
+                                },
+                                rag_tools=["web_search", "web_scrape", "search_file_descriptions", "search_file_knowledge", "get_file_content"],
+                            )
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "JavaScript",
+                        "source": textwrap.dedent(
+                            """
+                            const { r2rClient } = require("r2r-js");
+
+                            const client = new r2rClient();
+                            // when using auth, do client.login(...)
+
+                            async function main() {
+                                // Basic synchronous request
+                                const ragResponse = await client.retrieval.agent({
+                                    message: {
+                                        role: "user",
+                                        content: "Do a deep analysis of the philosophical implications of DeepSeek R1"
+                                    },
+                                    ragTools: ["web_search", "web_scrape", "search_file_descriptions", "search_file_knowledge", "get_file_content"]
+                                });
+                            }
+
+                            main();
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "Shell",
+                        "source": textwrap.dedent(
+                            """
+                            # Basic request
+                            curl -X POST "http://localhost:7272/v3/retrieval/agent" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer YOUR_API_KEY" \\
+                                -d '{
+                                "message": {
+                                    "role": "user",
+                                    "content": "What were the key contributions of Aristotle to logic?"
+                                },
+                                "search_settings": {
+                                    "use_semantic_search": true,
+                                    "filters": {"document_id": {"$eq": "e43864f5-a36f-548e-aacd-6f8d48b30c7f"}}
+                                },
+                                "rag_tools": ["search_file_knowledge", "get_file_content", "web_search"]
+                            }'
+
+                            # Advanced analysis with extended thinking
+                            curl -X POST "http://localhost:7272/v3/retrieval/agent" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer YOUR_API_KEY" \\
+                                -d '{
+                                "message": {
+                                    "role": "user",
+                                    "content": "Do a deep analysis of the philosophical implications of DeepSeek R1"
+                                },
+                                "search_settings": {"limit": 20},
+                                "research_tools": ["rag", "reasoning", "critique", "python_executor"],
+                                "rag_generation_config": {
+                                    "model": "anthropic/claude-3-7-sonnet-20250219",
+                                    "extended_thinking": true,
+                                    "thinking_budget": 4096,
+                                    "temperature": 1,
+                                    "top_p": null,
+                                    "max_tokens": 16000,
+                                    "stream": False
+                                }
+                            }'
+
+                            # Conversation continuation
+                            curl -X POST "http://localhost:7272/v3/retrieval/agent" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer YOUR_API_KEY" \\
+                                -d '{
+                                "message": {
+                                    "role": "user",
+                                    "content": "How does it compare to other reasoning models?"
+                                },
+                                "conversation_id": "YOUR_CONVERSATION_ID"
+                            }'
+                            """
+                        ),
+                    },
+                ]
+            },
         )
         @self.base_endpoint
         async def agent_app(
@@ -365,6 +571,7 @@ class RetrievalRouter(BaseRouterV3):
                 description="Configuration for generation in 'research' mode. If not provided but mode='research', rag_generation_config will be used with appropriate model overrides.",
             ),
             # Tool configurations
+            # FIXME: We need a more generic way to handle this
             rag_tools: Optional[
                 list[
                     Literal[
@@ -379,6 +586,7 @@ class RetrievalRouter(BaseRouterV3):
                 None,
                 description="List of tools to enable for RAG mode. Available tools: search_file_knowledge, get_file_content, web_search, web_scrape, search_file_descriptions",
             ),
+            # FIXME: We need a more generic way to handle this
             research_tools: Optional[
                 list[
                     Literal["rag", "reasoning", "critique", "python_executor"]
@@ -388,22 +596,11 @@ class RetrievalRouter(BaseRouterV3):
                 description="List of tools to enable for Research mode. Available tools: rag, reasoning, critique, python_executor",
             ),
             # Backward compatibility
-            tools: Optional[list[str]] = Body(
-                None,
-                deprecated=True,
-                description="List of tools to execute (deprecated, use rag_tools or research_tools instead)",
-            ),
-            # Other parameters
             task_prompt: Optional[str] = Body(
                 default=None,
                 description="Optional custom prompt to override default",
             ),
             # Backward compatibility
-            task_prompt_override: Optional[str] = Body(
-                default=None,
-                deprecated=True,
-                description="Optional custom prompt to override default",
-            ),
             include_title_if_available: bool = Body(
                 default=True,
                 description="Pass document titles from search results into the LLM context window.",
@@ -420,6 +617,7 @@ class RetrievalRouter(BaseRouterV3):
                 default=True,
                 description="Use extended prompt for generation",
             ),
+            # FIXME: We need a more generic way to handle this
             mode: Optional[Literal["rag", "research"]] = Body(
                 default="rag",
                 description="Mode to use for generation: 'rag' for standard retrieval or 'research' for deep analysis with reasoning capabilities",
@@ -485,10 +683,8 @@ class RetrievalRouter(BaseRouterV3):
             If no conversation name has already been set for the conversation, the system will automatically assign one.
 
             """
-            # Handle backward compatibility for task_prompt
-            task_prompt = task_prompt or task_prompt_override
             # Handle model selection based on mode
-            if "model" not in rag_generation_config.__fields_set__:
+            if "model" not in rag_generation_config.model_fields_set:
                 if mode == "rag":
                     rag_generation_config.model = self.config.app.quality_llm
                 elif mode == "research":
@@ -498,13 +694,6 @@ class RetrievalRouter(BaseRouterV3):
             effective_settings = self._prepare_search_settings(
                 auth_user, search_mode, search_settings
             )
-
-            # Handle tool configuration and backward compatibility
-            if tools:  # Handle deprecated tools parameter
-                logger.warning(
-                    "The 'tools' parameter is deprecated. Use 'rag_tools' or 'research_tools' based on mode."
-                )
-                rag_tools = tools  # type: ignore
 
             # Determine effective generation config
             effective_generation_config = rag_generation_config
@@ -560,7 +749,90 @@ class RetrievalRouter(BaseRouterV3):
             "/retrieval/completion",
             dependencies=[Depends(self.rate_limit_dependency)],
             summary="Generate Message Completions",
-            openapi_extra=EXAMPLES["completion"],
+            openapi_extra={
+                "x-codeSamples": [
+                    {
+                        "lang": "Python",
+                        "source": textwrap.dedent(
+                            """
+                            from r2r import R2RClient
+
+                            client = R2RClient()
+                            # when using auth, do client.login(...)
+
+                            response = client.completion(
+                                messages=[
+                                    {"role": "system", "content": "You are a helpful assistant."},
+                                    {"role": "user", "content": "What is the capital of France?"},
+                                    {"role": "assistant", "content": "The capital of France is Paris."},
+                                    {"role": "user", "content": "What about Italy?"}
+                                ],
+                                generation_config={
+                                    "model": "openai/gpt-4.1-mini",
+                                    "temperature": 0.7,
+                                    "max_tokens": 150,
+                                    "stream": False
+                                }
+                            )
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "JavaScript",
+                        "source": textwrap.dedent(
+                            """
+                            const { r2rClient } = require("r2r-js");
+
+                            const client = new r2rClient();
+                            // when using auth, do client.login(...)
+
+                            async function main() {
+                                const response = await client.completion({
+                                    messages: [
+                                        { role: "system", content: "You are a helpful assistant." },
+                                        { role: "user", content: "What is the capital of France?" },
+                                        { role: "assistant", content: "The capital of France is Paris." },
+                                        { role: "user", content: "What about Italy?" }
+                                    ],
+                                    generationConfig: {
+                                        model: "openai/gpt-4.1-mini",
+                                        temperature: 0.7,
+                                        maxTokens: 150,
+                                        stream: false
+                                    }
+                                });
+                            }
+
+                            main();
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "Shell",
+                        "source": textwrap.dedent(
+                            """
+                            curl -X POST "http://localhost:7272/v3/retrieval/completion" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer YOUR_API_KEY" \\
+                                -d '{
+                                "messages": [
+                                    {"role": "system", "content": "You are a helpful assistant."},
+                                    {"role": "user", "content": "What is the capital of France?"},
+                                    {"role": "assistant", "content": "The capital of France is Paris."},
+                                    {"role": "user", "content": "What about Italy?"}
+                                ],
+                                "generation_config": {
+                                    "model": "openai/gpt-4.1-mini",
+                                    "temperature": 0.7,
+                                    "max_tokens": 150,
+                                    "stream": false
+                                }
+                                }'
+                            """
+                        ),
+                    },
+                ]
+            },
         )
         @self.base_endpoint
         async def completion(
@@ -587,7 +859,7 @@ class RetrievalRouter(BaseRouterV3):
                 default_factory=GenerationConfig,
                 description="Configuration for text generation",
                 example={
-                    "model": "openai/gpt-4o-mini",
+                    "model": "openai/gpt-4.1-mini",
                     "temperature": 0.7,
                     "max_tokens": 150,
                     "stream": False,
@@ -616,7 +888,57 @@ class RetrievalRouter(BaseRouterV3):
             "/retrieval/embedding",
             dependencies=[Depends(self.rate_limit_dependency)],
             summary="Generate Embeddings",
-            openapi_extra=EXAMPLES["embedding"],
+            openapi_extra={
+                "x-codeSamples": [
+                    {
+                        "lang": "Python",
+                        "source": textwrap.dedent(
+                            """
+                            from r2r import R2RClient
+
+                            client = R2RClient()
+                            # when using auth, do client.login(...)
+
+                            result = client.retrieval.embedding(
+                                text="What is DeepSeek R1?",
+                            )
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "JavaScript",
+                        "source": textwrap.dedent(
+                            """
+                            const { r2rClient } = require("r2r-js");
+
+                            const client = new r2rClient();
+                            // when using auth, do client.login(...)
+
+                            async function main() {
+                                const response = await client.retrieval.embedding({
+                                    text: "What is DeepSeek R1?",
+                                });
+                            }
+
+                            main();
+                            """
+                        ),
+                    },
+                    {
+                        "lang": "Shell",
+                        "source": textwrap.dedent(
+                            """
+                            curl -X POST "http://localhost:7272/v3/retrieval/embedding" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer YOUR_API_KEY" \\
+                                -d '{
+                                "text": "What is DeepSeek R1?",
+                                }'
+                            """
+                        ),
+                    },
+                ]
+            },
         )
         @self.base_endpoint
         async def embedding(

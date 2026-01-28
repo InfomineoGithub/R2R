@@ -158,10 +158,15 @@ class IngestionService:
         metadata = metadata or {}
         metadata["version"] = version
 
+        collection_ids = metadata.get("collection_ids", [])
+        if not collection_ids and user.collection_ids:
+            # If no collection_ids provided, assign to user's first collection (default)
+            collection_ids = [user.collection_ids[0]]
+
         return DocumentResponse(
             id=document_id,
             owner_id=user.id,
-            collection_ids=metadata.get("collection_ids", []),
+            collection_ids=collection_ids,
             document_type=DocumentType[file_extension.upper()],
             title=(
                 metadata.get("title", file_name.split("/")[-1])
@@ -187,10 +192,15 @@ class IngestionService:
         metadata = metadata or {}
         metadata["version"] = version
 
+        collection_ids = metadata.get("collection_ids", [])
+        if not collection_ids and user.collection_ids:
+            # If no collection_ids provided, assign to user's first collection (default)
+            collection_ids = [user.collection_ids[0]]
+
         return DocumentResponse(
             id=document_id,
             owner_id=user.id,
-            collection_ids=metadata.get("collection_ids", []),
+            collection_ids=collection_ids,
             document_type=DocumentType.TXT,
             title=metadata.get("title", f"Ingested Chunks - {document_id}"),
             metadata=metadata,
@@ -226,10 +236,8 @@ class IngestionService:
 
         try:
             # Pull file from DB
-            retrieved = (
-                await self.providers.database.files_handler.retrieve_file(
-                    document_info.id
-                )
+            retrieved = await self.providers.file.retrieve_file(
+                document_info.id
             )
             if not retrieved:
                 # No file found in the DB, can't parse
@@ -463,6 +471,8 @@ class IngestionService:
             )
             max_chunks = (
                 self.providers.database.config.app.default_max_chunks_per_user
+                if self.providers.database.config.app
+                else 1e10
             )
             if user.limits_overrides and "max_chunks" in user.limits_overrides:
                 max_chunks = user.limits_overrides["max_chunks"]
@@ -542,6 +552,21 @@ class IngestionService:
         self, document_info: DocumentResponse
     ):
         try:
+            # Check if document still exists before updating status
+            # This prevents recreating documents that were deleted during ingestion
+            existing_docs = await self.providers.database.documents_handler.get_documents_overview(
+                offset=0,
+                limit=1,
+                filter_document_ids=[document_info.id]
+            )
+            
+            if not existing_docs["results"]:
+                logger.warning(
+                    f"Document {document_info.id} no longer exists. "
+                    f"Skipping status update to {document_info.ingestion_status}."
+                )
+                return
+            
             await self.providers.database.documents_handler.upsert_documents_overview(
                 document_info
             )
@@ -848,39 +873,6 @@ class IngestionService:
     ) -> dict:
         return await self.providers.database.chunks_handler.get_chunk(chunk_id)
 
-    async def update_document_metadata(
-        self,
-        document_id: UUID,
-        metadata: dict,
-        user: User,
-    ) -> None:
-        # Verify document exists and user has access
-        existing_document = await self.providers.database.documents_handler.get_documents_overview(
-            offset=0,
-            limit=100,
-            filter_document_ids=[document_id],
-            filter_user_ids=[user.id],
-        )
-        if not existing_document["results"]:
-            raise R2RException(
-                status_code=404,
-                message=(
-                    f"Document with id {document_id} not found "
-                    "or you don't have access."
-                ),
-            )
-
-        existing_document = existing_document["results"][0]
-
-        # Merge metadata
-        merged_metadata = {**existing_document.metadata, **metadata}  # type: ignore
-
-        # Update document metadata
-        existing_document.metadata = merged_metadata  # type: ignore
-        await self.providers.database.documents_handler.upsert_documents_overview(
-            existing_document  # type: ignore
-        )
-
 
 class IngestionServiceAdapter:
     @staticmethod
@@ -919,6 +911,7 @@ class IngestionServiceAdapter:
                 UnprocessedChunk.from_dict(chunk) for chunk in data["chunks"]
             ],
             "id": data.get("id"),
+            "collection_ids": data.get("collection_ids", []),
         }
 
     @staticmethod
@@ -930,17 +923,6 @@ class IngestionServiceAdapter:
             "text": data["text"],
             "metadata": data.get("metadata"),
             "collection_ids": data.get("collection_ids", []),
-        }
-
-    @staticmethod
-    def parse_update_files_input(data: dict) -> dict:
-        return {
-            "user": IngestionServiceAdapter._parse_user_data(data["user"]),
-            "document_ids": [UUID(doc_id) for doc_id in data["document_ids"]],
-            "metadatas": data["metadatas"],
-            "ingestion_config": data["ingestion_config"],
-            "file_sizes_in_bytes": data["file_sizes_in_bytes"],
-            "file_datas": data["file_datas"],
         }
 
     @staticmethod
@@ -972,12 +954,4 @@ class IngestionServiceAdapter:
         return {
             "index_name": input_data["index_name"],
             "table_name": input_data.get("table_name"),
-        }
-
-    @staticmethod
-    def parse_update_document_metadata_input(data: dict) -> dict:
-        return {
-            "document_id": data["document_id"],
-            "metadata": data["metadata"],
-            "user": IngestionServiceAdapter._parse_user_data(data["user"]),
         }

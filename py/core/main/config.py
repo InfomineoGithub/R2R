@@ -15,8 +15,10 @@ from ..base.providers.crypto import CryptoConfig
 from ..base.providers.database import DatabaseConfig
 from ..base.providers.email import EmailConfig
 from ..base.providers.embedding import EmbeddingConfig
+from ..base.providers.file import FileConfig
 from ..base.providers.ingestion import IngestionConfig
 from ..base.providers.llm import CompletionConfig
+from ..base.providers.ocr import OCRConfig
 from ..base.providers.orchestration import OrchestrationConfig
 from ..base.providers.scheduler import SchedulerConfig
 from ..base.utils import deep_update
@@ -50,34 +52,34 @@ class R2RConfig:
             "base_model",
             "base_dimension",
             "batch_size",
-            "add_title_as_prefix",
         ],
         "completion_embedding": [
             "provider",
             "base_model",
             "base_dimension",
             "batch_size",
-            "add_title_as_prefix",
         ],
-        # TODO - deprecated, remove
+        "file": ["provider"],
         "ingestion": ["provider"],
-        "logging": ["provider", "log_table"],
         "database": ["provider"],
         "agent": ["generation_config"],
+        "ocr": [],
         "orchestration": ["provider"],
         "scheduler": ["provider"],
     }
 
+    agent: RAGAgentConfig
     app: AppConfig
     auth: AuthConfig
     completion: CompletionConfig
+    completion_embedding: EmbeddingConfig
     crypto: CryptoConfig
     database: DatabaseConfig
-    embedding: EmbeddingConfig
-    completion_embedding: EmbeddingConfig
     email: EmailConfig
+    embedding: EmbeddingConfig
+    file: FileConfig
     ingestion: IngestionConfig
-    agent: RAGAgentConfig
+    ocr: OCRConfig
     orchestration: OrchestrationConfig
     scheduler: SchedulerConfig
 
@@ -111,14 +113,16 @@ class R2RConfig:
             **self.completion, app=self.app
         )  # type: ignore
         self.crypto = CryptoConfig.create(**self.crypto, app=self.app)  # type: ignore
-        self.email = EmailConfig.create(**self.email, app=self.app)  # type: ignore
         self.database = DatabaseConfig.create(**self.database, app=self.app)  # type: ignore
+        self.email = EmailConfig.create(**self.email, app=self.app)  # type: ignore
         self.embedding = EmbeddingConfig.create(**self.embedding, app=self.app)  # type: ignore
+        self.file = FileConfig.create(**self.file, app=self.app)  # type: ignore
         self.completion_embedding = EmbeddingConfig.create(
             **self.completion_embedding, app=self.app
         )  # type: ignore
         self.ingestion = IngestionConfig.create(**self.ingestion, app=self.app)  # type: ignore
         self.agent = RAGAgentConfig.create(**self.agent, app=self.app)  # type: ignore
+        self.ocr = OCRConfig.create(**self.ocr, app=self.app)  # type: ignore
         self.orchestration = OrchestrationConfig.create(
             **self.orchestration, app=self.app
         )  # type: ignore

@@ -1,4 +1,3 @@
-# TODO - cleanup type issues in this file that relate to `bytes`
 import asyncio
 import base64
 import logging
@@ -23,6 +22,7 @@ from core.base import (
 )
 from core.base.abstractions import R2RSerializable
 from core.base.providers.ingestion import IngestionConfig, IngestionProvider
+from core.providers.ocr import MistralOCRProvider
 from core.utils import generate_extraction_id
 
 from ...database import PostgresDatabaseProvider
@@ -103,6 +103,7 @@ class UnstructuredIngestionProvider(IngestionProvider):
     EXTRA_PARSERS = {
         DocumentType.CSV: {"advanced": parsers.CSVParserAdvanced},  # type: ignore
         DocumentType.PDF: {
+            "ocr": parsers.OCRPDFParser,  # type: ignore
             "unstructured": parsers.PDFParserUnstructured,  # type: ignore
             "zerox": parsers.VLMPDFParser,  # type: ignore
         },
@@ -127,6 +128,7 @@ class UnstructuredIngestionProvider(IngestionProvider):
             | OpenAICompletionProvider
             | R2RCompletionProvider
         ),
+        ocr_provider: MistralOCRProvider,
     ):
         super().__init__(config, database_provider, llm_provider)
         self.config: UnstructuredIngestionConfig = config
@@ -136,7 +138,9 @@ class UnstructuredIngestionProvider(IngestionProvider):
             | OpenAICompletionProvider
             | R2RCompletionProvider
         ) = llm_provider
+        self.ocr_provider: MistralOCRProvider = ocr_provider
 
+        self.client: UnstructuredClient | httpx.AsyncClient
         if config.provider == "unstructured_api":
             try:
                 self.unstructured_api_auth = os.environ["UNSTRUCTURED_API_KEY"]
@@ -186,16 +190,29 @@ class UnstructuredIngestionProvider(IngestionProvider):
                         llm_provider=self.llm_provider,
                     )
         # TODO - Reduce code duplication between Unstructured & R2R
-        for doc_type, doc_parser_name in self.config.extra_parsers.items():
-            self.parsers[f"{doc_parser_name}_{str(doc_type)}"] = (
-                UnstructuredIngestionProvider.EXTRA_PARSERS[doc_type][
-                    doc_parser_name
-                ](
-                    config=self.config,
-                    database_provider=self.database_provider,
-                    llm_provider=self.llm_provider,
-                )
-            )
+        for doc_type, parser_names in self.config.extra_parsers.items():
+            if not isinstance(parser_names, list):
+                parser_names = [parser_names]
+
+            for parser_name in parser_names:
+                parser_key = f"{parser_name}_{str(doc_type)}"
+
+                try:
+                    self.parsers[parser_key] = self.EXTRA_PARSERS[doc_type][
+                        parser_name
+                    ](
+                        config=self.config,
+                        database_provider=self.database_provider,
+                        llm_provider=self.llm_provider,
+                        ocr_provider=self.ocr_provider,
+                    )
+                    logger.info(
+                        f"Initialized extra parser {parser_name} for {doc_type}"
+                    )
+                except KeyError as e:
+                    logger.error(
+                        f"Parser {parser_name} for document type {doc_type} not found: {e}"
+                    )
 
     async def parse_fallback(
         self,
@@ -220,30 +237,50 @@ class UnstructuredIngestionProvider(IngestionProvider):
 
         logging.info(f"Fallback ingestion with config = {ingestion_config}")
 
+        vlm_ocr_one_page_per_chunk = ingestion_config.get(
+            "vlm_ocr_one_page_per_chunk", True
+        )
+
         iteration = 0
         for content_item in contents:
             text = content_item["content"]
 
-            loop = asyncio.get_event_loop()
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=ingestion_config["new_after_n_chars"],
-                chunk_overlap=ingestion_config["overlap"],
-            )
-            chunks = await loop.run_in_executor(
-                None, splitter.create_documents, [text]
-            )
-
-            for text_chunk in chunks:
+            if vlm_ocr_one_page_per_chunk and parser_name.startswith(
+                ("zerox_", "ocr_")
+            ):
+                # Use one page per chunk for OCR/VLM
                 metadata = {"chunk_id": iteration}
                 if "page_number" in content_item:
                     metadata["page_number"] = content_item["page_number"]
 
                 yield FallbackElement(
-                    text=text_chunk.page_content,
+                    text=text or "No content extracted.",
                     metadata=metadata,
                 )
                 iteration += 1
                 await asyncio.sleep(0)
+            else:
+                # Use regular text splitting
+                loop = asyncio.get_event_loop()
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=ingestion_config["new_after_n_chars"],
+                    chunk_overlap=ingestion_config["overlap"],
+                )
+                chunks = await loop.run_in_executor(
+                    None, splitter.create_documents, [text]
+                )
+
+                for text_chunk in chunks:
+                    metadata = {"chunk_id": iteration}
+                    if "page_number" in content_item:
+                        metadata["page_number"] = content_item["page_number"]
+
+                    yield FallbackElement(
+                        text=text_chunk.page_content,
+                        metadata=metadata,
+                    )
+                    iteration += 1
+                    await asyncio.sleep(0)
 
     async def parse(
         self,
@@ -273,12 +310,26 @@ class UnstructuredIngestionProvider(IngestionProvider):
             logger.info(
                 f"Using parser_override for {document.document_type} with input value {parser_overrides[document.document_type.value]}"
             )
-            async for element in self.parse_fallback(
-                file_content,
-                ingestion_config=ingestion_config,
-                parser_name=f"zerox_{DocumentType.PDF.value}",
-            ):
-                elements.append(element)
+            if parser_overrides[document.document_type.value] == "zerox":
+                async for element in self.parse_fallback(
+                    file_content,
+                    ingestion_config=ingestion_config,
+                    parser_name=f"zerox_{DocumentType.PDF.value}",
+                ):
+                    logger.warning(
+                        f"Using parser_override for {document.document_type}"
+                    )
+                    elements.append(element)
+            elif parser_overrides[document.document_type.value] == "ocr":
+                async for element in self.parse_fallback(
+                    file_content,
+                    ingestion_config=ingestion_config,
+                    parser_name=f"ocr_{DocumentType.PDF.value}",
+                ):
+                    logger.warning(
+                        f"Using OCR parser_override for {document.document_type}"
+                    )
+                    elements.append(element)
 
         elif document.document_type in self.R2R_FALLBACK_PARSERS.keys():
             logger.info(
@@ -294,14 +345,14 @@ class UnstructuredIngestionProvider(IngestionProvider):
             logger.info(
                 f"Parsing {document.document_type}: {document.id} with unstructured"
             )
-            if isinstance(file_content, bytes):
-                file_content = BytesIO(file_content)  # type: ignore
+
+            file_io = BytesIO(file_content)
 
             # TODO - Include check on excluded parsers here.
             if self.config.provider == "unstructured_api":
                 logger.info(f"Using API to parse document {document.id}")
                 files = self.shared.Files(
-                    content=file_content.read(),  # type: ignore
+                    content=file_io.read(),
                     file_name=document.metadata.get("title", "unknown_file"),
                 )
 
@@ -309,12 +360,14 @@ class UnstructuredIngestionProvider(IngestionProvider):
                 ingestion_config.pop("extra_parsers", None)
 
                 req = self.operations.PartitionRequest(
-                    self.shared.PartitionParameters(
+                    partition_parameters=self.shared.PartitionParameters(
                         files=files,
                         **ingestion_config,
                     )
                 )
-                elements = self.client.general.partition(req)  # type: ignore
+                elements = await self.client.general.partition_async(  # type: ignore
+                    request=req
+                )
                 elements = list(elements.elements)  # type: ignore
 
             else:
@@ -322,7 +375,7 @@ class UnstructuredIngestionProvider(IngestionProvider):
                     f"Using local unstructured fastapi server to parse document {document.id}"
                 )
                 # Base64 encode the file content
-                encoded_content = base64.b64encode(file_content.read()).decode(  # type: ignore
+                encoded_content = base64.b64encode(file_io.read()).decode(
                     "utf-8"
                 )
 
@@ -381,10 +434,6 @@ class UnstructuredIngestionProvider(IngestionProvider):
                 data=text,
                 metadata=metadata,
             )
-
-        # TODO: explore why this is throwing inadvertedly
-        # if iteration == 0:
-        #     raise ValueError(f"No chunks found for document {document.id}")
 
         logger.debug(
             f"Parsed document with id={document.id}, title={document.metadata.get('title', None)}, "

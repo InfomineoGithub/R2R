@@ -85,9 +85,6 @@ class DocumentType(str, Enum):
     DOC = "doc"
     DOCX = "docx"
 
-    # XML
-    XML = "xml"
-
     # Code
     PY = "py"
     JS = "js"
@@ -197,7 +194,7 @@ class DocumentResponse(R2RSerializable):
     updated_at: Optional[datetime] = None
     ingestion_attempt_number: Optional[int] = None
     summary: Optional[str] = None
-    summary_embedding: Optional[list[float]] = None  # Add optional embedding
+    summary_embedding: Optional[list[float]] = None
     total_tokens: Optional[int] = None
     chunks: Optional[list] = None
 
@@ -288,6 +285,7 @@ class RawChunk(R2RSerializable):
 
 class IngestionMode(str, Enum):
     hi_res = "hi-res"
+    ocr = "ocr"
     fast = "fast"
     custom = "custom"
 
@@ -315,18 +313,19 @@ class ChunkEnrichmentSettings(R2RSerializable):
 
 class IngestionConfig(R2RSerializable):
     provider: str = "r2r"
-    excluded_parsers: list[str] = ["mp4"]
+    excluded_parsers: list[str] = []
     chunking_strategy: str = "recursive"
     chunk_enrichment_settings: ChunkEnrichmentSettings = (
         ChunkEnrichmentSettings()
     )
     extra_parsers: dict[str, Any] = {}
-
     audio_transcription_model: str = ""
 
-    vision_img_prompt_name: str = "vision_img"
-
-    vision_pdf_prompt_name: str = "vision_pdf"
+    vlm: Optional[str] = None
+    vlm_batch_size: int = 5
+    vlm_max_tokens_to_sample: int = 1024
+    max_concurrent_vlm_tasks: int = 5
+    vlm_ocr_one_page_per_chunk: bool = True
 
     skip_document_summary: bool = False
     document_summary_system_prompt: str = "system"
@@ -349,12 +348,10 @@ class IngestionConfig(R2RSerializable):
             # More thorough parsing, no skipping summaries, possibly larger `chunks_for_document_summary`.
             return cls(
                 provider="r2r",
-                excluded_parsers=["mp4"],
+                excluded_parsers=[],
                 chunk_enrichment_settings=ChunkEnrichmentSettings(),  # default
                 extra_parsers={},
                 audio_transcription_model="",
-                vision_img_prompt_name="vision_img",
-                vision_pdf_prompt_name="vision_pdf",
                 skip_document_summary=False,
                 document_summary_system_prompt="system",
                 document_summary_task_prompt="summary",
@@ -362,16 +359,29 @@ class IngestionConfig(R2RSerializable):
                 document_summary_model="",
             )
 
+        elif mode == "ocr":
+            # Use Mistral OCR for PDFs and images.
+            return cls(
+                provider="r2r",
+                excluded_parsers=[],
+                chunk_enrichment_settings=ChunkEnrichmentSettings(),  # default
+                extra_parsers={},
+                audio_transcription_model="",
+                skip_document_summary=False,
+                document_summary_system_prompt="system",
+                document_summary_task_prompt="summary",
+                chunks_for_document_summary=128,
+                document_summary_model="",
+            )
+
         elif mode == "fast":
             # Skip summaries and other enrichment steps for speed.
             return cls(
                 provider="r2r",
-                excluded_parsers=["mp4"],
+                excluded_parsers=[],
                 chunk_enrichment_settings=ChunkEnrichmentSettings(),  # default
                 extra_parsers={},
                 audio_transcription_model="",
-                vision_img_prompt_name="vision_img",
-                vision_pdf_prompt_name="vision_pdf",
                 skip_document_summary=True,  # skip summaries
                 document_summary_system_prompt="system",
                 document_summary_task_prompt="summary",

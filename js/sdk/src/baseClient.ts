@@ -38,12 +38,13 @@ export abstract class BaseClient {
   protected baseUrl: string;
   protected accessToken?: string | null;
   protected apiKey?: string | null;
+  protected projectName?: string | null;
   protected refreshToken: string | null;
   protected anonymousTelemetry: boolean;
   protected enableAutoRefresh: boolean;
 
   constructor(
-    baseURL: string = "https://api.sciphi.ai",
+    baseURL: string = "http://localhost:7272",
     prefix: string = "",
     anonymousTelemetry = true,
     enableAutoRefresh = false,
@@ -51,6 +52,7 @@ export abstract class BaseClient {
     this.baseUrl = `${baseURL}${prefix}`;
     this.accessToken = null;
     this.apiKey = process.env.R2R_API_KEY || null;
+    this.projectName = null;
     this.refreshToken = null;
     this.anonymousTelemetry = anonymousTelemetry;
 
@@ -147,6 +149,10 @@ export abstract class BaseClient {
       config.headers.Authorization = `Bearer ${this.accessToken}`;
     }
 
+    if (this.projectName) {
+      config.headers["x-project-name"] = this.projectName;
+    }
+
     if (options.responseType === "stream") {
       return this.handleStreamingRequest<T>(method, version, endpoint, config);
     }
@@ -241,7 +247,20 @@ export abstract class BaseClient {
   }
 
   setApiKey(apiKey: string): void {
-    if (!apiKey) throw new Error("API key is required");
+    if (!apiKey) {
+      throw new Error("API key is required");
+    }
     this.apiKey = apiKey;
+  }
+
+  setProjectName(projectName: string): void {
+    if (!projectName) {
+      throw new Error("Project name is required");
+    }
+    this.projectName = projectName;
+  }
+
+  unsetProjectName(): void {
+    this.projectName = null;
   }
 }

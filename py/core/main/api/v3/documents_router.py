@@ -15,7 +15,6 @@ from pydantic import Json
 
 from core.base import (
     IngestionConfig,
-    IngestionMode,
     R2RException,
     SearchMode,
     SearchSettings,
@@ -40,6 +39,7 @@ from core.base.api.models import (
     WrappedRelationshipsResponse,
 )
 from core.utils import update_settings_from_dict
+from shared.abstractions import IngestionMode
 
 from ...abstractions import R2RProviders, R2RServices
 from ...config import R2RConfig
@@ -138,11 +138,6 @@ class DocumentsRouter(BaseRouterV3):
                     if self.providers.orchestration.config.provider != "simple"
                     else "Chunk update completed successfully."
                 ),
-                "update-document-metadata": (
-                    "Update document metadata task queued successfully."
-                    if self.providers.orchestration.config.provider != "simple"
-                    else "Document metadata update completed successfully."
-                ),
                 "create-vector-index": (
                     "Vector index creation task queued successfully."
                     if self.providers.orchestration.config.provider != "simple"
@@ -176,7 +171,6 @@ class DocumentsRouter(BaseRouterV3):
                     effective_config, ingestion_config
                 )
         else:
-            # custom mode
             effective_config = ingestion_config or IngestionConfig(
                 app=self.providers.auth.config.app
             )
@@ -269,6 +263,7 @@ class DocumentsRouter(BaseRouterV3):
                 description=(
                     "Ingestion modes:\n"
                     "- `hi-res`: Thorough ingestion with full summaries and enrichment.\n"
+                    "- `ocr`: OCR via Mistral and full summaries.\n"
                     "- `fast`: Quick ingestion with minimal enrichment and no summaries.\n"
                     "- `custom`: Full control via `ingestion_config`.\n\n"
                     "If `filters` or `limit` (in `ingestion_config`) are provided alongside `hi-res` or `fast`, "
@@ -408,6 +403,11 @@ class DocumentsRouter(BaseRouterV3):
                         chunk.model_dump(mode="json")
                         for chunk in raw_chunks_for_doc
                     ],
+                    "collection_ids": (
+                        [str(cid) for cid in collection_ids]
+                        if collection_ids
+                        else None
+                    ),
                     "metadata": metadata,  # Base metadata for the document
                     "user": auth_user.model_dump_json(),
                     "ingestion_config": effective_ingestion_config.model_dump(
@@ -454,13 +454,16 @@ class DocumentsRouter(BaseRouterV3):
                 if file:
                     file_data = await self._process_file(file)
 
-                    if not file.filename:
+                    if metadata.get("title"):
+                        file_data["filename"] = metadata["title"]
+
+                    if not file_data["filename"]:
                         raise R2RException(
                             status_code=422,
                             message="Uploaded file must have a filename.",
                         )
 
-                    file_ext = file.filename.split(".")[
+                    file_ext = file_data["filename"].split(".")[
                         -1
                     ]  # e.g. "pdf", "txt"
                     max_allowed_size = await self.services.management.get_max_upload_size_by_type(
@@ -522,20 +525,28 @@ class DocumentsRouter(BaseRouterV3):
             }
 
             file_name = file_data["filename"]
-            await self.providers.database.files_handler.store_file(
+            await self.providers.file.store_file(
                 document_id,
                 file_name,
                 file_content,
                 file_data["content_type"],
             )
 
-            await self.services.ingestion.ingest_file_ingress(
+            ingest_result = await self.services.ingestion.ingest_file_ingress(
                 file_data=workflow_input["file_data"],
                 user=auth_user,
                 document_id=workflow_input["document_id"],
                 size_in_bytes=workflow_input["size_in_bytes"],
                 metadata=workflow_input["metadata"],
                 version=workflow_input["version"],
+            )
+            
+            # Update workflow input with the document's collection_ids
+            document_info = ingest_result["info"]
+            workflow_input["collection_ids"] = (
+                [str(cid) for cid in document_info.collection_ids]
+                if document_info.collection_ids
+                else None
             )
 
             if run_with_orchestration:
@@ -977,11 +988,15 @@ class DocumentsRouter(BaseRouterV3):
                 100,
                 ge=1,
                 le=1000,
-                description="Specifies a limit on the number of objects to return, ranging between 1 and 100. Defaults to 100.",
+                description="Specifies a limit on the number of objects to return, ranging between 1 and 1000. Defaults to 100.",
             ),
             include_summary_embeddings: bool = Query(
                 False,
                 description="Specifies whether or not to include embeddings of each document summary.",
+            ),
+            owner_only: bool = Query(
+                False,
+                description="If true, only returns documents owned by the user, not all accessible documents.",
             ),
             auth_user=Depends(self.providers.auth.auth_wrapper()),
         ) -> WrappedDocumentsResponse:
@@ -995,14 +1010,15 @@ class DocumentsRouter(BaseRouterV3):
             The documents are returned in order of last modification, with most
             recent first.
             """
-            requesting_user_id = (
-                None if auth_user.is_superuser else [auth_user.id]
-            )
-            filter_collection_ids = (
-                None if auth_user.is_superuser else auth_user.collection_ids
-            )
 
-            document_uuids = [UUID(document_id) for document_id in ids]
+            if auth_user.is_superuser:
+                requesting_user_id = [auth_user.id] if owner_only else None
+                filter_collection_ids = None
+            else:
+                requesting_user_id = [auth_user.id]
+                filter_collection_ids = auth_user.collection_ids
+
+            document_uuids = [UUID(document_id) for document_id in ids] if ids else None
             documents_overview_response = (
                 await self.services.management.documents_overview(
                     user_ids=requesting_user_id,
@@ -1010,6 +1026,7 @@ class DocumentsRouter(BaseRouterV3):
                     document_ids=document_uuids,
                     offset=offset,
                     limit=limit,
+                    owner_only=owner_only,
                 )
             )
             if not include_summary_embeddings:
@@ -1167,7 +1184,7 @@ class DocumentsRouter(BaseRouterV3):
                 100,
                 ge=1,
                 le=1000,
-                description="Specifies a limit on the number of objects to return, ranging between 1 and 100. Defaults to 100.",
+                description="Specifies a limit on the number of objects to return, ranging between 1 and 1000. Defaults to 100.",
             ),
             include_vectors: Optional[bool] = Query(
                 False,
@@ -1553,7 +1570,7 @@ class DocumentsRouter(BaseRouterV3):
                 100,
                 ge=1,
                 le=1000,
-                description="Specifies a limit on the number of objects to return, ranging between 1 and 100. Defaults to 100.",
+                description="Specifies a limit on the number of objects to return, ranging between 1 and 1000. Defaults to 100.",
             ),
             auth_user=Depends(self.providers.auth.auth_wrapper()),
         ) -> WrappedCollectionsResponse:
@@ -1677,14 +1694,14 @@ class DocumentsRouter(BaseRouterV3):
                     settings_dict=settings,  # type: ignore
                 )
 
+            workflow_input = {
+                "document_id": str(id),
+                "graph_creation_settings": server_graph_creation_settings.model_dump_json(),
+                "user": auth_user.json(),
+            }
+
             if run_with_orchestration:
                 try:
-                    workflow_input = {
-                        "document_id": str(id),
-                        "graph_creation_settings": server_graph_creation_settings.model_dump_json(),
-                        "user": auth_user.json(),
-                    }
-
                     return await self.providers.orchestration.run_workflow(  # type: ignore
                         "graph-extraction", {"request": workflow_input}, {}
                     )
@@ -1881,7 +1898,7 @@ class DocumentsRouter(BaseRouterV3):
                 100,
                 ge=1,
                 le=1000,
-                description="Specifies a limit on the number of objects to return, ranging between 1 and 100. Defaults to 100.",
+                description="Specifies a limit on the number of objects to return, ranging between 1 and 1000. Defaults to 100.",
             ),
             include_embeddings: Optional[bool] = Query(
                 False,
@@ -2108,7 +2125,7 @@ class DocumentsRouter(BaseRouterV3):
                 100,
                 ge=1,
                 le=1000,
-                description="Specifies a limit on the number of objects to return, ranging between 1 and 100. Defaults to 100.",
+                description="Specifies a limit on the number of objects to return, ranging between 1 and 1000. Defaults to 100.",
             ),
             entity_names: Optional[list[str]] = Query(
                 None,

@@ -209,9 +209,9 @@ export interface GenerationConfig {
 }
 
 export interface HybridSearchSettings {
-  fullTextWeight?: number;
+  fulltextWeight?: number;
   semanticWeight?: number;
-  fullTextLimit?: number;
+  fulltextLimit?: number;
   rrfK?: number;
 }
 
@@ -228,7 +228,7 @@ export interface GraphSearchSettings {
 export interface SearchSettings {
   useHybridSearch?: boolean;
   useSemanticSearch?: boolean;
-  useFullTextSearch?: boolean;
+  useFulltextSearch?: boolean;
   filters?: Record<string, any>;
   limit?: number;
   offset?: number;
@@ -435,6 +435,7 @@ export type WrappedRelationshipsResponse = PaginatedResultsWrapper<
 // Retrieval Responses
 export type WrappedVectorSearchResponse = ResultsWrapper<VectorSearchResult[]>;
 export type WrappedSearchResponse = ResultsWrapper<CombinedSearchResponse>;
+export type WrappedEmbeddingResponse = ResultsWrapper<number[]>;
 
 // System Responses
 export type WrappedSettingsResponse = ResultsWrapper<SettingsResponse>;
@@ -501,3 +502,34 @@ export type WrappedAPIKeyResponse = R2RResults<ApiKey>;
  * Wrapped response that contains a list of existing API keys (no private keys).
  */
 export type WrappedAPIKeysResponse = PaginatedR2RResult<ApiKeyNoPriv[]>;
+
+// Document Search Result type
+export interface DocumentSearchResult {
+  id: string;
+  documentId: string;
+  ownerId: string;
+  collectionIds: string[];
+  documentType: string;
+  metadata: Record<string, any>;
+  title?: string;
+  version: string;
+  sizeInBytes?: number;
+  ingestionStatus: string;
+  extractionStatus: string;
+  createdAt: string;
+  updatedAt: string;
+  ingestionAttemptNumber?: number;
+  summary?: string;
+  score: number;
+}
+
+// Paginated results wrapper for document search
+export interface PaginatedResultsWrapper<T> {
+  results: T;
+  totalEntries: number;
+}
+
+// Wrapped Document Search Response
+export type WrappedDocumentSearchResponse = PaginatedResultsWrapper<
+  DocumentSearchResult[]
+>;

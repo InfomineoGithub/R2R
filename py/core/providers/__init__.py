@@ -22,6 +22,10 @@ from .embeddings import (
     OllamaEmbeddingProvider,
     OpenAIEmbeddingProvider,
 )
+from .file import (
+    PostgresFileProvider,
+    S3FileProvider,
+)
 from .ingestion import (  # type: ignore
     R2RIngestionConfig,
     R2RIngestionProvider,
@@ -33,6 +37,9 @@ from .llm import (
     LiteLLMCompletionProvider,
     OpenAICompletionProvider,
     R2RCompletionProvider,
+)
+from .ocr import (
+    MistralOCRProvider,
 )
 from .orchestration import (
     HatchetOrchestrationProvider,
@@ -58,22 +65,27 @@ __all__ = [
     "BcryptCryptoConfig",
     "NaClCryptoConfig",
     "NaClCryptoProvider",
+    # Database
+    "PostgresDatabaseProvider",
     # Embeddings
     "LiteLLMEmbeddingProvider",
     "OllamaEmbeddingProvider",
     "OpenAIEmbeddingProvider",
-    # Database
-    "PostgresDatabaseProvider",
     # Email
     "AsyncSMTPEmailProvider",
     "ConsoleMockEmailProvider",
     "SendGridEmailProvider",
     "MailerSendEmailProvider",
+    # File
+    "PostgresFileProvider",
+    "S3FileProvider",
     # LLM
     "AnthropicCompletionProvider",
     "OpenAICompletionProvider",
     "R2RCompletionProvider",
     "LiteLLMCompletionProvider",
+    # OCR
+    "MistralOCRProvider",
     # Orchestration
     "HatchetOrchestrationProvider",
     "SimpleOrchestrationProvider",

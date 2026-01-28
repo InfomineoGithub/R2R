@@ -8,7 +8,6 @@ from typing import Any, Callable, Optional
 
 from core.base import AppConfig
 from core.base.abstractions import GenerationConfig, Message, SearchSettings
-from core.base.agent import Tool
 from core.base.providers import DatabaseProvider
 from core.providers import (
     AnthropicCompletionProvider,
@@ -17,6 +16,7 @@ from core.providers import (
     R2RCompletionProvider,
 )
 from core.utils import extract_citations
+from shared.abstractions.tool import Tool
 
 from ..base.agent.agent import RAGAgentConfig  # type: ignore
 
@@ -115,6 +115,7 @@ class ResearchAgentMixin(RAGAgentMixin):
                 },
                 "required": ["query"],
             },
+            context=self,
         )
 
     def reasoning_tool(self) -> Tool:
@@ -214,10 +215,19 @@ class ResearchAgentMixin(RAGAgentMixin):
         # Create a copy of the current configuration for the RAG agent
         config_copy = copy(self.config)
         config_copy.max_iterations = 10  # Could be configurable
-        config_copy.rag_tools = [
-            "web_search",
-            "web_scrape",
-        ]  # HACK HACK TODO - Fix.
+
+        # Always include critical web search tools
+        default_tools = ["web_search", "web_scrape"]
+
+        # Get the configured RAG tools from the original config
+        configured_tools = set(self.config.rag_tools or default_tools)
+
+        # Combine default tools with all configured tools, ensuring no duplicates
+        config_copy.rag_tools = list(
+            set(default_tools + list(configured_tools))
+        )
+
+        logger.debug(f"Using RAG tools: {config_copy.rag_tools}")
 
         # Create a generation config for the RAG agent
         generation_config = GenerationConfig(

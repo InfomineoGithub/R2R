@@ -2,9 +2,9 @@ import json
 from io import BytesIO
 from typing import Any, Generator
 
-from httpx import Client, RequestError, Response
+from httpx import Client, ConnectError, RequestError, Response
 
-from shared.abstractions import R2RException
+from shared.abstractions import R2RClientException, R2RException
 
 from .base.base_client import BaseClient
 from .sync_methods import (
@@ -45,18 +45,6 @@ class R2RClient(BaseClient):
         self, method: str, endpoint: str, version: str = "v3", **kwargs
     ) -> dict[str, Any] | BytesIO | None:
         url = self._get_full_url(endpoint, version)
-        if (
-            "https://api.sciphi.ai" in url
-            and ("login" not in endpoint)
-            and ("create" not in endpoint)
-            and ("users" not in endpoint)
-            and ("health" not in endpoint)
-            and (not self.access_token and not self.api_key)
-        ):
-            raise R2RException(
-                status_code=401,
-                message="Access token or api key is required to access `https://api.sciphi.ai`. To change the base url, use `set_base_url` method or set the local environment variable `R2R_API_BASE` to `http://localhost:7272`.",
-            )
         request_args = self._prepare_request_args(endpoint, **kwargs)
 
         try:
@@ -68,10 +56,15 @@ class R2RClient(BaseClient):
             else:
                 return BytesIO(response.content)
 
+        except ConnectError as e:
+            raise R2RClientException(
+                message="Unable to connect to the server. Check your network connection and the server URL."
+            ) from e
+
         except RequestError as e:
             raise R2RException(
-                status_code=500,
                 message=f"Request failed: {str(e)}",
+                status_code=500,
             ) from e
 
     def _make_streaming_request(
@@ -163,3 +156,9 @@ class R2RClient(BaseClient):
 
     def set_base_url(self, base_url: str) -> None:
         self.base_url = base_url
+
+    def set_project_name(self, project_name: str | None) -> None:
+        self.project_name = project_name
+
+    def unset_project_name(self) -> None:
+        self.project_name = None

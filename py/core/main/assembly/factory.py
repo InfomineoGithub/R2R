@@ -12,7 +12,9 @@ from core.base import (
     EmailConfig,
     EmbeddingConfig,
     EmbeddingProvider,
+    FileConfig,
     IngestionConfig,
+    OCRConfig,
     OrchestrationConfig,
     SchedulerConfig,
 )
@@ -29,6 +31,7 @@ from core.providers import (
     LiteLLMCompletionProvider,
     LiteLLMEmbeddingProvider,
     MailerSendEmailProvider,
+    MistralOCRProvider,
     NaClCryptoConfig,
     NaClCryptoProvider,
     OllamaEmbeddingProvider,
@@ -116,6 +119,18 @@ class R2RProviderFactory:
             )
 
     @staticmethod
+    def create_ocr_provider(
+        config: OCRConfig | dict, *args, **kwargs
+    ) -> MistralOCRProvider:
+        if isinstance(config, dict):
+            config = OCRConfig(**config)
+
+        if config.provider == "mistral":
+            return MistralOCRProvider(config)
+        else:
+            raise ValueError(f"OCR provider {config.provider} not supported")
+
+    @staticmethod
     def create_ingestion_provider(
         ingestion_config: IngestionConfig,
         database_provider: PostgresDatabaseProvider,
@@ -125,6 +140,7 @@ class R2RProviderFactory:
             | OpenAICompletionProvider
             | R2RCompletionProvider
         ),
+        ocr_provider: MistralOCRProvider,
         *args,
         **kwargs,
     ) -> R2RIngestionProvider | UnstructuredIngestionProvider:
@@ -141,7 +157,10 @@ class R2RProviderFactory:
                 **config_dict, **extra_fields
             )
             return R2RIngestionProvider(
-                r2r_ingestion_config, database_provider, llm_provider
+                config=r2r_ingestion_config,
+                database_provider=database_provider,
+                llm_provider=llm_provider,
+                ocr_provider=ocr_provider,
             )
         elif config_dict["provider"] in [
             "unstructured_local",
@@ -152,7 +171,10 @@ class R2RProviderFactory:
             )
 
             return UnstructuredIngestionProvider(
-                unstructured_ingestion_config, database_provider, llm_provider
+                config=unstructured_ingestion_config,
+                database_provider=database_provider,
+                llm_provider=llm_provider,
+                ocr_provider=ocr_provider,
             )
         else:
             raise ValueError(
@@ -192,19 +214,39 @@ class R2RProviderFactory:
         quantization_type = (
             self.config.embedding.quantization_settings.quantization_type
         )
-        if db_config.provider == "postgres":
-            database_provider = PostgresDatabaseProvider(
-                db_config,
-                dimension,
-                crypto_provider=crypto_provider,
-                quantization_type=quantization_type,
-            )
-            await database_provider.initialize()
-            return database_provider
-        else:
+        if db_config.provider != "postgres":
             raise ValueError(
                 f"Database provider {db_config.provider} not supported"
             )
+
+        database_provider = PostgresDatabaseProvider(
+            db_config,
+            dimension,
+            crypto_provider=crypto_provider,
+            quantization_type=quantization_type,
+        )
+        await database_provider.initialize()
+        return database_provider
+
+    @staticmethod
+    def create_file_provider(
+        config: FileConfig, database_provider=None, *args, **kwargs
+    ):
+        if config.provider == "postgres":
+            from core.providers import PostgresFileProvider
+
+            return PostgresFileProvider(
+                config=config,
+                project_name=database_provider.project_name,
+                connection_manager=database_provider.connection_manager,
+            )
+
+        elif config.provider == "s3":
+            from core.providers import S3FileProvider
+
+            return S3FileProvider(config)
+        else:
+            raise ValueError(f"File provider {config.provider} not supported")
 
     @staticmethod
     def create_embedding_provider(
@@ -337,6 +379,7 @@ class R2RProviderFactory:
             | LiteLLMCompletionProvider
             | R2RCompletionProvider
         ] = None,
+        ocr_provider_override: Optional[MistralOCRProvider] = None,
         orchestration_provider_override: Optional[Any] = None,
         scheduler_provider_override: Optional[APSchedulerProvider] = None,
         *args,
@@ -385,12 +428,22 @@ class R2RProviderFactory:
             )
         )
 
+        file_provider = self.create_file_provider(
+            config=self.config.file, database_provider=database_provider
+        )
+        await file_provider.initialize()
+
+        ocr_provider = ocr_provider_override or self.create_ocr_provider(
+            self.config.ocr
+        )
+
         ingestion_provider = (
             ingestion_provider_override
             or self.create_ingestion_provider(
                 self.config.ingestion,
                 database_provider,
                 llm_provider,
+                ocr_provider,
                 *args,
                 **kwargs,
             )
@@ -427,12 +480,14 @@ class R2RProviderFactory:
 
         return R2RProviders(
             auth=auth_provider,
-            database=database_provider,
-            embedding=embedding_provider,
             completion_embedding=completion_embedding_provider,
+            database=database_provider,
+            email=email_provider,
+            embedding=embedding_provider,
+            file=file_provider,
             ingestion=ingestion_provider,
             llm=llm_provider,
-            email=email_provider,
+            ocr=ocr_provider,
             orchestration=orchestration_provider,
             scheduler=scheduler_provider,
         )
