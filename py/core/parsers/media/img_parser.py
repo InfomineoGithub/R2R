@@ -96,6 +96,24 @@ class ImageParser(AsyncParser[str | bytes]):
             logger.error(f"Error converting HEIC to JPEG: {str(e)}")
             raise
 
+    async def _convert_tiff_to_jpeg(self, data: bytes) -> bytes:
+        """Convert TIFF image to JPEG format."""
+        try:
+            # Open TIFF image
+            with BytesIO(data) as input_buffer:
+                tiff_image = self.Image.open(input_buffer)
+
+                # Convert to RGB if needed
+                if tiff_image.mode not in ("RGB", "L"):
+                    tiff_image = tiff_image.convert("RGB")
+
+                # Save as JPEG
+                output_buffer = BytesIO()
+                tiff_image.save(output_buffer, format="JPEG", quality=95)
+                return output_buffer.getvalue()
+        except Exception as e:
+            raise ValueError(f"Error converting TIFF to JPEG: {str(e)}") from e
+
     def _is_jpeg(self, data: bytes) -> bool:
         """Detect JPEG format using magic numbers."""
         return len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8
@@ -143,8 +161,7 @@ class ImageParser(AsyncParser[str | bytes]):
                 return "image/tiff"
 
             # Try using filetype as a fallback
-            img_type = filetype.guess(data)
-            if img_type:
+            if img_type := filetype.guess(data):
                 # Map the detected type to a MIME type
                 return self.MIME_TYPE_MAPPING.get(
                     img_type, f"image/{img_type}"
@@ -167,14 +184,30 @@ class ImageParser(AsyncParser[str | bytes]):
             return "application/octet-stream"  # Default to generic binary as fallback
 
     async def ingest(
-        self, data: str | bytes, **kwargs
+        self,
+        data: str | bytes,
+        prompt_text: str = None,
+        prompt_name: str = None,
+        prompt_args: dict = None,
+        **kwargs,
     ) -> AsyncGenerator[str, None]:
-        if not self.vision_prompt_text:
-            self.vision_prompt_text = (
+        # prompt_text > prompt_name > self.vision_prompt_text
+        if not prompt_text and not prompt_name:
+            if not self.vision_prompt_text:
+                prompt = await self.database_provider.prompts_handler.get_cached_prompt(
+                    prompt_name="vision_img"
+                )
+                self.vision_prompt_text = prompt
+            prompt_text = self.vision_prompt_text
+        elif not prompt_text and prompt_name:
+            prompt = (
                 await self.database_provider.prompts_handler.get_cached_prompt(
-                    prompt_name=self.config.vision_img_prompt_name
+                    prompt_name=prompt_name,
+                    inputs=prompt_args,
                 )
             )
+            prompt_text = prompt
+
         try:
             filename = kwargs.get("filename", None)
             # Whether to convert HEIC to JPEG (default: True for backward compatibility)
@@ -192,6 +225,7 @@ class ImageParser(AsyncParser[str | bytes]):
 
                     # Determine if we need to convert HEIC
                     is_heic_format = self._is_heic(data)
+                    is_tiff_format = self._is_tiff(data)
 
                     # Handle HEIC images
                     if is_heic_format and convert_heic:
@@ -199,6 +233,12 @@ class ImageParser(AsyncParser[str | bytes]):
                             "Detected HEIC format, converting to JPEG"
                         )
                         data = await self._convert_heic_to_jpeg(data)
+                        media_type = "image/jpeg"
+                    elif is_tiff_format:
+                        logger.debug(
+                            "Detected TIFF format, converting to JPEG"
+                        )
+                        data = await self._convert_tiff_to_jpeg(data)
                         media_type = "image/jpeg"
                     else:
                         # Keep original format and media type
@@ -235,7 +275,7 @@ class ImageParser(AsyncParser[str | bytes]):
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": self.vision_prompt_text},
+                            {"type": "text", "text": prompt_text},
                             {
                                 "type": "image",
                                 "source": {
@@ -253,7 +293,7 @@ class ImageParser(AsyncParser[str | bytes]):
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": self.vision_prompt_text},
+                            {"type": "text", "text": prompt_text},
                             {
                                 "type": "image_url",
                                 "image_url": {
@@ -268,13 +308,13 @@ class ImageParser(AsyncParser[str | bytes]):
                 messages=messages, generation_config=generation_config
             )
 
-            if response.choices and response.choices[0].message:
-                content = response.choices[0].message.content
-                if not content:
-                    raise ValueError("No content in response")
+            if not response.choices or not response.choices[0].message:
+                raise ValueError("No response content")
+
+            if content := response.choices[0].message.content:
                 yield content
             else:
-                raise ValueError("No response content")
+                raise ValueError("No content in response")
 
         except Exception as e:
             logger.error(f"Error processing image with vision model: {str(e)}")

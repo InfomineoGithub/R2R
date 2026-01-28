@@ -26,6 +26,7 @@ class CompletionConfig(ProviderConfig):
     max_retries: int = 3
     initial_backoff: float = 1.0
     max_backoff: float = 64.0
+    request_timeout: float = 15.0
 
     def validate_config(self) -> None:
         if not self.provider:
@@ -52,13 +53,29 @@ class CompletionProvider(Provider):
             max_workers=config.concurrent_request_limit
         )
 
-    async def _execute_with_backoff_async(self, task: dict[str, Any]):
+    async def _execute_with_backoff_async(
+        self,
+        task: dict[str, Any],
+        apply_timeout: bool = False,
+    ):
         retries = 0
         backoff = self.config.initial_backoff
         while retries < self.config.max_retries:
             try:
+                # A semaphore allows us to limit concurrent requests
                 async with self.semaphore:
-                    return await self._execute_task(task)
+                    if not apply_timeout:
+                        return await self._execute_task(task)
+
+                    try:  # Use asyncio.wait_for to set a timeout for the request
+                        return await asyncio.wait_for(
+                            self._execute_task(task),
+                            timeout=self.config.request_timeout,
+                        )
+                    except asyncio.TimeoutError as e:
+                        raise TimeoutError(
+                            f"Request timed out after {self.config.request_timeout} seconds"
+                        ) from e
             except AuthenticationError:
                 raise
             except Exception as e:
@@ -94,12 +111,24 @@ class CompletionProvider(Provider):
                 await asyncio.sleep(random.uniform(0, backoff))
                 backoff = min(backoff * 2, self.config.max_backoff)
 
-    def _execute_with_backoff_sync(self, task: dict[str, Any]):
+    def _execute_with_backoff_sync(
+        self,
+        task: dict[str, Any],
+        apply_timeout: bool = False,
+    ):
         retries = 0
         backoff = self.config.initial_backoff
         while retries < self.config.max_retries:
-            try:
+            if not apply_timeout:
                 return self._execute_task_sync(task)
+
+            try:
+                future = self.thread_pool.submit(self._execute_task_sync, task)
+                return future.result(timeout=self.config.request_timeout)
+            except TimeoutError as e:
+                raise TimeoutError(
+                    f"Request timed out after {self.config.request_timeout} seconds"
+                ) from e
             except Exception as e:
                 logger.warning(
                     f"Request failed (attempt {retries + 1}): {str(e)}"
@@ -141,6 +170,7 @@ class CompletionProvider(Provider):
         self,
         messages: list[dict],
         generation_config: GenerationConfig,
+        apply_timeout: bool = False,
         **kwargs,
     ) -> LLMChatCompletion:
         task = {
@@ -148,7 +178,9 @@ class CompletionProvider(Provider):
             "generation_config": generation_config,
             "kwargs": kwargs,
         }
-        response = await self._execute_with_backoff_async(task)
+        response = await self._execute_with_backoff_async(
+            task=task, apply_timeout=apply_timeout
+        )
         return LLMChatCompletion(**response.dict())
 
     async def aget_completion_stream(
@@ -168,21 +200,22 @@ class CompletionProvider(Provider):
                 yield LLMChatCompletionChunk(**chunk)
                 continue
 
-            chunk.choices[0].finish_reason = (
-                chunk.choices[0].finish_reason
-                if chunk.choices[0].finish_reason != ""
-                else None
-            )  # handle error output conventions
-            chunk.choices[0].finish_reason = (
-                chunk.choices[0].finish_reason
-                if chunk.choices[0].finish_reason != "eos"
-                else "stop"
-            )  # hardcode `eos` to `stop` for consistency
-            try:
-                yield LLMChatCompletionChunk(**(chunk.dict()))
-            except Exception as e:
-                logger.error(f"Error parsing chunk: {e}")
-                yield LLMChatCompletionChunk(**(chunk.as_dict()))
+            if chunk.choices and len(chunk.choices) > 0:
+                chunk.choices[0].finish_reason = (
+                    chunk.choices[0].finish_reason
+                    if chunk.choices[0].finish_reason != ""
+                    else None
+                )  # handle error output conventions
+                chunk.choices[0].finish_reason = (
+                    chunk.choices[0].finish_reason
+                    if chunk.choices[0].finish_reason != "eos"
+                    else "stop"
+                )  # hardcode `eos` to `stop` for consistency
+                try:
+                    yield LLMChatCompletionChunk(**(chunk.dict()))
+                except Exception as e:
+                    logger.error(f"Error parsing chunk: {e}")
+                    yield LLMChatCompletionChunk(**(chunk.as_dict()))
 
     def get_completion_stream(
         self,

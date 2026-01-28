@@ -1,37 +1,25 @@
-import asyncio
 import logging
 from uuid import UUID
 
-import tiktoken
 from fastapi import HTTPException
 from litellm import AuthenticationError
 
 from core.base import (
     DocumentChunk,
+    DocumentResponse,
     GraphConstructionStatus,
     R2RException,
-    increment_version,
 )
 from core.utils import (
     generate_default_user_collection_id,
     generate_extraction_id,
+    num_tokens,
     update_settings_from_dict,
 )
 
 from ...services import IngestionService
 
 logger = logging.getLogger()
-
-
-# FIXME: No need to duplicate this function between the workflows, consolidate it into a shared module
-def count_tokens_for_text(text: str, model: str = "gpt-4o") -> int:
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-    except KeyError:
-        # Fallback to a known encoding if model not recognized
-        encoding = tiktoken.get_encoding("cl100k_base")
-
-    return len(encoding.encode(text, disallowed_special=()))
 
 
 def simple_ingestion_factory(service: IngestionService):
@@ -74,7 +62,7 @@ def simple_ingestion_factory(service: IngestionService):
                 text_data = chunk_dict["data"]
                 if not isinstance(text_data, str):
                     text_data = text_data.decode("utf-8", errors="ignore")
-                total_tokens += count_tokens_for_text(text_data)
+                total_tokens += num_tokens(text_data)
             document_info.total_tokens = total_tokens
 
             if not ingestion_config.get("skip_document_summary", False):
@@ -106,7 +94,7 @@ def simple_ingestion_factory(service: IngestionService):
                 document_info, status=IngestionStatus.SUCCESS
             )
 
-            collection_ids = parsed_data.get("collection_ids")
+            collection_ids = document_info.collection_ids
 
             try:
                 if not collection_ids:
@@ -114,6 +102,20 @@ def simple_ingestion_factory(service: IngestionService):
                     collection_id = generate_default_user_collection_id(
                         document_info.owner_id
                     )
+                    collection_ids = [collection_id]
+                else:
+                    collection_ids_uuid = []
+                    for cid in collection_ids:
+                        if isinstance(cid, str):
+                            collection_ids_uuid.append(UUID(cid))
+                        elif isinstance(cid, UUID):
+                            collection_ids_uuid.append(cid)
+                    collection_ids = collection_ids_uuid
+
+                await _ensure_collections_exists(
+                    service, document_info, collection_ids
+                )
+                for collection_id in collection_ids:
                     await service.providers.database.collections_handler.assign_document_to_collection_relational(
                         document_id=document_info.id,
                         collection_id=collection_id,
@@ -132,49 +134,6 @@ def simple_ingestion_factory(service: IngestionService):
                         status_type="graph_cluster_status",
                         status=GraphConstructionStatus.OUTDATED,  # NOTE - we should actually check that cluster has been made first, if not it should be PENDING still
                     )
-                else:
-                    for collection_id in collection_ids:
-                        try:
-                            # FIXME: Right now we just throw a warning if the collection already exists, but we should probably handle this more gracefully
-                            name = "My Collection"
-                            description = f"A collection started during {document_info.title} ingestion"
-
-                            await service.providers.database.collections_handler.create_collection(
-                                owner_id=document_info.owner_id,
-                                name=name,
-                                description=description,
-                                collection_id=collection_id,
-                            )
-                            await service.providers.database.graphs_handler.create(
-                                collection_id=collection_id,
-                                name=name,
-                                description=description,
-                                graph_id=collection_id,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                f"Warning, could not create collection with error: {str(e)}"
-                            )
-
-                        await service.providers.database.collections_handler.assign_document_to_collection_relational(
-                            document_id=document_info.id,
-                            collection_id=collection_id,
-                        )
-
-                        await service.providers.database.chunks_handler.assign_document_chunks_to_collection(
-                            document_id=document_info.id,
-                            collection_id=collection_id,
-                        )
-                        await service.providers.database.documents_handler.set_workflow_status(
-                            id=collection_id,
-                            status_type="graph_sync_status",
-                            status=GraphConstructionStatus.OUTDATED,
-                        )
-                        await service.providers.database.documents_handler.set_workflow_status(
-                            id=collection_id,
-                            status_type="graph_cluster_status",
-                            status=GraphConstructionStatus.OUTDATED,  # NOTE - we should actually check that cluster has been made first, if not it should be PENDING still
-                        )
             except Exception as e:
                 logger.error(
                     f"Error during assigning document to collection: {str(e)}"
@@ -251,90 +210,78 @@ def simple_ingestion_factory(service: IngestionService):
                 status_code=500, detail=f"Error during ingestion: {str(e)}"
             ) from e
 
-    async def update_files(input_data):
-        from core.main import IngestionServiceAdapter
-
-        parsed_data = IngestionServiceAdapter.parse_update_files_input(
-            input_data
-        )
-
-        file_datas = parsed_data["file_datas"]
-        user = parsed_data["user"]
-        document_ids = parsed_data["document_ids"]
-        metadatas = parsed_data["metadatas"]
-        ingestion_config = parsed_data["ingestion_config"]
-        file_sizes_in_bytes = parsed_data["file_sizes_in_bytes"]
-
-        if not file_datas:
-            raise R2RException(
-                status_code=400, message="No files provided for update."
-            ) from None
-        if len(document_ids) != len(file_datas):
-            raise R2RException(
-                status_code=400,
-                message="Number of ids does not match number of files.",
-            ) from None
-
-        documents_overview = (
-            await service.providers.database.documents_handler.get_documents_overview(  # FIXME: This was using the pagination defaults from before... We need to review if this is as intended.
+    async def _ensure_collections_exists(
+        service: IngestionService,
+        document_info: DocumentResponse,
+        collection_ids: list[UUID],
+    ):
+        try:
+            result = await service.providers.database.collections_handler.get_collections_overview(
                 offset=0,
-                limit=100,
-                filter_user_ids=None if user.is_superuser else [user.id],
-                filter_document_ids=document_ids,
+                limit=len(collection_ids),
+                filter_collection_ids=collection_ids,
             )
-        )["results"]
-
-        if len(documents_overview) != len(document_ids):
-            raise R2RException(
-                status_code=404,
-                message="One or more documents not found.",
-            ) from None
-
-        results = []
-
-        for idx, (
-            file_data,
-            doc_id,
-            doc_info,
-            file_size_in_bytes,
-        ) in enumerate(
-            zip(
-                file_datas,
-                document_ids,
-                documents_overview,
-                file_sizes_in_bytes,
-                strict=False,
+            existing_collections = result.get("results", [])
+            if not isinstance(existing_collections, list):
+                logger.error(
+                    "Invalid response format for existing collections retrieval: %s",
+                    result,
+                )
+                raise R2RException(
+                    status_code=500,
+                    message="Error during collection retrieval: Invalid response format.",
+                )
+            existing_collection_ids = [c.id for c in existing_collections]
+            user_info = (
+                await service.providers.database.users_handler.get_user_by_id(
+                    id=document_info.owner_id
+                )
             )
-        ):
-            new_version = increment_version(doc_info.version)
-
-            updated_metadata = (
-                metadatas[idx] if metadatas else doc_info.metadata
+            logger.debug(
+                "existing collection ids: %s", existing_collection_ids
             )
-            updated_metadata["title"] = (
-                updated_metadata.get("title")
-                or file_data["filename"].split("/")[-1]
+            user_collection_ids = user_info.collection_ids or []
+            logger.debug("user collection ids: %s", user_collection_ids)
+            for collection_id in collection_ids:
+                if collection_id in existing_collection_ids:
+                    if collection_id in user_collection_ids:
+                        continue
+                    else:
+                        raise R2RException(
+                            status_code=403,
+                            message=f"Collection {collection_id} does not belong to user "
+                            f"{document_info.owner_id}",
+                        )
+                # create collection if not exist
+                # (maybe failed is more safe if collection is not exists?)
+                docname = document_info.title or document_info.id
+                name = f"Created for ingesting document {docname}"
+                logger.info(
+                    "Creating collection: %s, %s ", collection_id, name
+                )
+                description = name
+
+                await service.providers.database.collections_handler.create_collection(
+                    owner_id=document_info.owner_id,
+                    name=name,
+                    description=description,
+                    collection_id=collection_id,
+                )
+                await service.providers.database.users_handler.add_user_to_collection(
+                    id=document_info.owner_id,
+                    collection_id=collection_id,
+                )
+                await service.providers.database.graphs_handler.create(
+                    collection_id=collection_id,
+                    name=name,
+                    description=description,
+                )
+        except Exception as e:
+            logger.warning(
+                f"Warning, could not ensure collection: {str(e)}",
+                exc_info=True,
             )
-
-            ingest_input = {
-                "file_data": file_data,
-                "user": user.model_dump(),
-                "metadata": updated_metadata,
-                "document_id": str(doc_id),
-                "version": new_version,
-                "ingestion_config": ingestion_config,
-                "size_in_bytes": file_size_in_bytes,
-            }
-
-            result = ingest_files(ingest_input)
-            results.append(result)
-
-        await asyncio.gather(*results)
-        if service.providers.ingestion.config.automatic_extraction:
-            raise R2RException(
-                status_code=501,
-                message="Automatic extraction not yet implemented for `simple` ingestion workflows.",
-            ) from None
+            raise e
 
     async def ingest_chunks(input_data):
         document_info = None
@@ -353,6 +300,11 @@ def simple_ingestion_factory(service: IngestionService):
             )
             document_id = document_info.id
 
+            collection_ids = document_info.collection_ids or []
+            if isinstance(collection_ids, str):
+                collection_ids = [collection_ids]
+            collection_ids = [UUID(id_str) for id_str in collection_ids]
+
             extractions = [
                 DocumentChunk(
                     id=(
@@ -361,7 +313,7 @@ def simple_ingestion_factory(service: IngestionService):
                         else chunk.id
                     ),
                     document_id=document_id,
-                    collection_ids=[],
+                    collection_ids=collection_ids,
                     owner_id=document_info.owner_id,
                     data=chunk.text,
                     metadata=parsed_data["metadata"],
@@ -387,8 +339,6 @@ def simple_ingestion_factory(service: IngestionService):
             await service.update_document_status(
                 document_info, status=IngestionStatus.SUCCESS
             )
-
-            collection_ids = parsed_data.get("collection_ids")
 
             try:
                 # TODO - Move logic onto management service
@@ -556,43 +506,10 @@ def simple_ingestion_factory(service: IngestionService):
                 detail=f"Error during vector index deletion: {str(e)}",
             ) from e
 
-    async def update_document_metadata(input_data):
-        try:
-            from core.main import IngestionServiceAdapter
-
-            parsed_data = (
-                IngestionServiceAdapter.parse_update_document_metadata_input(
-                    input_data
-                )
-            )
-
-            document_id = parsed_data["document_id"]
-            metadata = parsed_data["metadata"]
-            user = parsed_data["user"]
-
-            await service.update_document_metadata(
-                document_id=document_id,
-                metadata=metadata,
-                user=user,
-            )
-
-            return {
-                "message": "Document metadata update completed successfully.",
-                "document_id": str(document_id),
-                "task_id": None,
-            }
-
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error during document metadata update: {str(e)}",
-            ) from e
-
     return {
         "ingest-files": ingest_files,
         "ingest-chunks": ingest_chunks,
         "update-chunk": update_chunk,
-        "update-document-metadata": update_document_metadata,
         "create-vector-index": create_vector_index,
         "delete-vector-index": delete_vector_index,
     }

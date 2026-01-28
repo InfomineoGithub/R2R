@@ -5,7 +5,6 @@ import uuid
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-import tiktoken
 from fastapi import HTTPException
 from hatchet_sdk import ConcurrencyLimitStrategy, Context
 from litellm import AuthenticationError
@@ -20,6 +19,7 @@ from core.base import (
 from core.base.abstractions import DocumentResponse, R2RException
 from core.utils import (
     generate_default_user_collection_id,
+    num_tokens,
     update_settings_from_dict,
 )
 
@@ -29,17 +29,6 @@ if TYPE_CHECKING:
     from hatchet_sdk import Hatchet
 
 logger = logging.getLogger()
-
-
-# FIXME: No need to duplicate this function between the workflows, consolidate it into a shared module
-def count_tokens_for_text(text: str, model: str = "gpt-4o") -> int:
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-    except KeyError:
-        # Fallback to a known encoding if model not recognized
-        encoding = tiktoken.get_encoding("cl100k_base")
-
-    return len(encoding.encode(text, disallowed_special=()))
 
 
 def hatchet_ingestion_factory(
@@ -115,7 +104,7 @@ def hatchet_ingestion_factory(
                     text_data = chunk.data
                     if not isinstance(text_data, str):
                         text_data = text_data.decode("utf-8", errors="ignore")
-                    total_tokens += count_tokens_for_text(text_data)
+                    total_tokens += num_tokens(text_data)
                 document_info.total_tokens = total_tokens
 
                 if not ingestion_config.get("skip_document_summary", False):
@@ -161,9 +150,7 @@ def hatchet_ingestion_factory(
                     status=IngestionStatus.SUCCESS,
                 )
 
-                collection_ids = context.workflow_input()["request"].get(
-                    "collection_ids"
-                )
+                collection_ids = document_info.collection_ids
                 if not collection_ids:
                     # TODO: Move logic onto the `management service`
                     collection_id = generate_default_user_collection_id(
@@ -374,7 +361,7 @@ def hatchet_ingestion_factory(
                 DocumentChunk(
                     id=generate_extraction_id(document_id, i),
                     document_id=document_id,
-                    collection_ids=[],
+                    collection_ids=document_info.collection_ids,
                     owner_id=document_info.owner_id,
                     data=chunk.text,
                     metadata=parsed_data["metadata"],
@@ -388,7 +375,7 @@ def hatchet_ingestion_factory(
                 text_data = chunk["data"]
                 if not isinstance(text_data, str):
                     text_data = text_data.decode("utf-8", errors="ignore")
-                total_tokens += count_tokens_for_text(text_data)
+                total_tokens += num_tokens(text_data)
             document_info.total_tokens = total_tokens
 
             return {
@@ -440,9 +427,7 @@ def hatchet_ingestion_factory(
 
             try:
                 # TODO - Move logic onto the `management service`
-                collection_ids = context.workflow_input()["request"].get(
-                    "collection_ids"
-                )
+                collection_ids = document_info.collection_ids
                 if not collection_ids:
                     # TODO: Move logic onto the `management service`
                     collection_id = generate_default_user_collection_id(
@@ -658,56 +643,10 @@ def hatchet_ingestion_factory(
 
             return {"status": "Vector index deleted successfully."}
 
-    @orchestration_provider.workflow(
-        name="update-document-metadata",
-        timeout="30m",
-    )
-    class HatchetUpdateDocumentMetadataWorkflow:
-        def __init__(self, ingestion_service: IngestionService):
-            self.ingestion_service = ingestion_service
-
-        @orchestration_provider.step(timeout="30m")
-        async def update_document_metadata(self, context: Context) -> dict:
-            try:
-                input_data = context.workflow_input()["request"]
-                parsed_data = IngestionServiceAdapter.parse_update_document_metadata_input(
-                    input_data
-                )
-
-                document_id = UUID(parsed_data["document_id"])
-                metadata = parsed_data["metadata"]
-                user = parsed_data["user"]
-
-                await self.ingestion_service.update_document_metadata(
-                    document_id=document_id,
-                    metadata=metadata,
-                    user=user,
-                )
-
-                return {
-                    "message": "Document metadata update completed successfully.",
-                    "document_id": str(document_id),
-                    "task_id": context.workflow_run_id(),
-                }
-
-            except Exception as e:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error during document metadata update: {str(e)}",
-                ) from e
-
-        @orchestration_provider.failure()
-        async def on_failure(self, context: Context) -> None:
-            # Handle failure case if necessary
-            pass
-
     # Add this to the workflows dictionary in hatchet_ingestion_factory
     ingest_files_workflow = HatchetIngestFilesWorkflow(service)
     ingest_chunks_workflow = HatchetIngestChunksWorkflow(service)
     update_chunks_workflow = HatchetUpdateChunkWorkflow(service)
-    update_document_metadata_workflow = HatchetUpdateDocumentMetadataWorkflow(
-        service
-    )
     create_vector_index_workflow = HatchetCreateVectorIndexWorkflow(service)
     delete_vector_index_workflow = HatchetDeleteVectorIndexWorkflow(service)
 
@@ -715,7 +654,6 @@ def hatchet_ingestion_factory(
         "ingest_files": ingest_files_workflow,
         "ingest_chunks": ingest_chunks_workflow,
         "update_chunk": update_chunks_workflow,
-        "update_document_metadata": update_document_metadata_workflow,
         "create_vector_index": create_vector_index_workflow,
         "delete_vector_index": delete_vector_index_workflow,
     }

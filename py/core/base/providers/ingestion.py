@@ -23,24 +23,22 @@ class ChunkingStrategy(str, Enum):
     BY_TITLE = "by_title"
 
 
-class IngestionMode(str, Enum):
-    hi_res = "hi-res"
-    fast = "fast"
-    custom = "custom"
-
-
 class IngestionConfig(ProviderConfig):
     _defaults: ClassVar[dict] = {
         "app": AppConfig(),
         "provider": "r2r",
-        "excluded_parsers": ["mp4"],
+        "excluded_parsers": [],
         "chunking_strategy": "recursive",
         "chunk_size": 1024,
+        "chunk_overlap": 512,
         "chunk_enrichment_settings": ChunkEnrichmentSettings(),
         "extra_parsers": {},
         "audio_transcription_model": None,
-        "vision_img_prompt_name": "vision_img",
-        "vision_pdf_prompt_name": "vision_pdf",
+        "vlm": None,
+        "vlm_batch_size": 5,
+        "vlm_max_tokens_to_sample": 1_024,
+        "max_concurrent_vlm_tasks": 5,
+        "vlm_ocr_one_page_per_chunk": True,
         "skip_document_summary": False,
         "document_summary_system_prompt": "system",
         "document_summary_task_prompt": "summary",
@@ -64,6 +62,9 @@ class IngestionConfig(ProviderConfig):
     chunk_size: int = Field(
         default_factory=lambda: IngestionConfig._defaults["chunk_size"]
     )
+    chunk_overlap: int = Field(
+        default_factory=lambda: IngestionConfig._defaults["chunk_overlap"]
+    )
     chunk_enrichment_settings: ChunkEnrichmentSettings = Field(
         default_factory=lambda: IngestionConfig._defaults[
             "chunk_enrichment_settings"
@@ -77,14 +78,25 @@ class IngestionConfig(ProviderConfig):
             "audio_transcription_model"
         ]
     )
-    vision_img_prompt_name: str = Field(
+    vlm: Optional[str] = Field(
+        default_factory=lambda: IngestionConfig._defaults["vlm"]
+    )
+    vlm_batch_size: int = Field(
+        default_factory=lambda: IngestionConfig._defaults["vlm_batch_size"]
+    )
+    vlm_max_tokens_to_sample: int = Field(
         default_factory=lambda: IngestionConfig._defaults[
-            "vision_img_prompt_name"
+            "vlm_max_tokens_to_sample"
         ]
     )
-    vision_pdf_prompt_name: str = Field(
+    max_concurrent_vlm_tasks: int = Field(
         default_factory=lambda: IngestionConfig._defaults[
-            "vision_pdf_prompt_name"
+            "max_concurrent_vlm_tasks"
+        ]
+    )
+    vlm_ocr_one_page_per_chunk: bool = Field(
+        default_factory=lambda: IngestionConfig._defaults[
+            "vlm_ocr_one_page_per_chunk"
         ]
     )
     skip_document_summary: bool = Field(
@@ -142,13 +154,17 @@ class IngestionConfig(ProviderConfig):
 
     def validate_config(self) -> None:
         if self.provider not in self.supported_providers:
-            raise ValueError(f"Provider {self.provider} is not supported.")
+            raise ValueError(
+                f"Provider {self.provider} is not supported, must be one of {self.supported_providers}"
+            )
 
     @classmethod
     def get_default(cls, mode: str, app) -> "IngestionConfig":
         """Return default ingestion configuration for a given mode."""
         if mode == "hi-res":
             return cls(app=app, parser_overrides={"pdf": "zerox"})
+        if mode == "ocr":
+            return cls(app=app, parser_overrides={"pdf": "ocr"})
         if mode == "fast":
             return cls(app=app, skip_document_summary=True)
         else:
