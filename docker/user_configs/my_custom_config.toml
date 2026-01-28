@@ -8,8 +8,8 @@ default_max_upload_size = 200_000_000
 
 [embedding]
 provider = "litellm"
-base_model = "gemini/text-embedding-004"
-base_dimension = nan
+base_model = "gemini/gemini-embedding-001"
+base_dimension = 768
 batch_size = 128
 add_title_as_prefix = true
 concurrent_request_limit = 8
@@ -20,8 +20,17 @@ chunk_overlap = 256
 
 [completion_embedding]
 provider = "litellm"
-base_model = "gemini/text-embedding-004"
-base_dimension = nan
+base_model = "gemini/gemini-embedding-001"
+base_dimension = 768
 batch_size = 128
 add_title_as_prefix = true
 concurrent_request_limit = 8
+
+[auth]
+provider = "r2r"
+access_token_lifetime_in_minutes = 60
+refresh_token_lifetime_in_days = 7
+require_authentication = true
+require_email_verification = false
+default_admin_email = "admin@example.com"
+default_admin_password = "ButterflyEffect101"

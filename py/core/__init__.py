@@ -7,6 +7,7 @@ from .main import *
 from .parsers import *
 from .providers import *
 
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
